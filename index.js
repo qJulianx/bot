@@ -20,7 +20,7 @@ const {
     PermissionsBitField 
 } = require('discord.js');
 const { DisTube } = require('distube');
-// Importujemy ffmpeg ręcznie, żeby bot wiedział gdzie on jest (naprawia ciszę na hostingu)
+// Importujemy ffmpeg ręcznie - to jest KLUCZOWE na Renderze
 const ffmpegPath = require('ffmpeg-static');
 
 const client = new Client({
@@ -34,7 +34,7 @@ const client = new Client({
 });
 
 // ==========================================
-// KONFIGURACJA (UZUPEŁNIJ TE 3 LINIJKI!)
+// KONFIGURACJA
 // ==========================================
 
 const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
@@ -42,22 +42,21 @@ const ROLE_PW_ID = '1447757045947174972';
 const ROLE_EMBED_ID = '1447764029882896487';
 
 // ==========================================
-// KONFIGURACJA DISTUBE (NAPRAWIONA)
+// KONFIGURACJA DISTUBE (WERSJA 5 - CZYSTA)
 // ==========================================
 const distube = new DisTube(client, {
+    // W wersji 5 usunięto leaveOnStop, leaveOnFinish i ytdlOptions z tego obiektu.
+    // Jedynie co musimy tu zostawić dla Rendera, to ścieżka do ffmpeg.
+    
     emitNewSongOnly: true,
-    // Kluczowe ustawienie dla Render/Linux: wskazujemy ścieżkę do ffmpeg
     ffmpeg: {
         path: ffmpegPath, 
     },
-    // Opcje YTDL pomagające w stabilności
-    ytdlOptions: {
-        quality: 'highestaudio',
-        highWaterMark: 1 << 25,
-    },
 });
 
-// Obsługa zdarzeń muzycznych
+// ==========================================
+// EVENTY MUZYCZNE
+// ==========================================
 distube
     .on('playSong', (queue, song) => {
         const embed = new EmbedBuilder()
@@ -75,11 +74,11 @@ distube
     .on('addList', (queue, playlist) => queue.textChannel.send(`✅ Dodano playlistę: **${playlist.name}** (${playlist.songs.length} utworów)`))
     .on('error', (channel, e) => {
         console.error('BŁĄD DISTUBE:', e);
-        if (channel) channel.send(`❌ Błąd odtwarzania (sprawdź konsolę).`);
+        if (channel) channel.send(`❌ Błąd odtwarzania: ${e.message.slice(0, 100)}`);
     });
 
 // ==========================================
-// FUNKCJE POMOCNICZE (PW & EMBED)
+// FUNKCJE POMOCNICZE
 // ==========================================
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -92,7 +91,7 @@ function createEmbedModal(targetChannelId) {
     const inputs = [
         new TextInputBuilder().setCustomId('embedTitle').setLabel("Tytuł").setStyle(TextInputStyle.Short).setRequired(false),
         new TextInputBuilder().setCustomId('embedDesc').setLabel("Opis").setStyle(TextInputStyle.Paragraph).setRequired(true),
-        new TextInputBuilder().setCustomId('embedColor').setLabel("Kolor (np. Blue)").setStyle(TextInputStyle.Short).setPlaceholder('Blue').setRequired(false),
+        new TextInputBuilder().setCustomId('embedColor').setLabel("Kolor").setStyle(TextInputStyle.Short).setPlaceholder('Blue').setRequired(false),
         new TextInputBuilder().setCustomId('embedImage').setLabel("Obrazek (URL)").setStyle(TextInputStyle.Short).setRequired(false),
         new TextInputBuilder().setCustomId('embedFooter').setLabel("Stopka").setStyle(TextInputStyle.Short).setRequired(false)
     ];
@@ -180,7 +179,6 @@ client.once('ready', async () => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // --- /play ---
     if (interaction.commandName === 'play') {
         const voiceChannel = interaction.member.voice.channel;
         if (!voiceChannel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', ephemeral: true });
@@ -199,7 +197,6 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // --- /stop ---
     if (interaction.commandName === 'stop') {
         const queue = distube.getQueue(interaction.guildId);
         if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', ephemeral: true });
@@ -207,7 +204,6 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply('⏹️ Zatrzymano.');
     }
 
-    // --- /skip ---
     if (interaction.commandName === 'skip') {
         const queue = distube.getQueue(interaction.guildId);
         if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', ephemeral: true });
@@ -215,7 +211,6 @@ client.on('interactionCreate', async interaction => {
         catch { await interaction.reply({ content: '⚠️ To ostatni utwór.', ephemeral: true }); }
     }
 
-    // --- /queue ---
     if (interaction.commandName === 'queue') {
         const queue = distube.getQueue(interaction.guildId);
         if (!queue) return interaction.reply({ content: 'Pusto.', ephemeral: true });
@@ -223,14 +218,12 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply(`**Kolejka:**\n${q}`);
     }
 
-    // --- /fembed ---
     if (interaction.commandName === 'fembed') {
         if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', ephemeral: true });
         const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
         await interaction.showModal(createEmbedModal(targetChannel.id));
     }
 
-    // --- /pw ---
     if (interaction.commandName === 'pw') {
         const role = interaction.options.getRole('ranga');
         const messageContent = interaction.options.getString('wiadomosc');
