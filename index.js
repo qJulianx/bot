@@ -18,8 +18,8 @@ const {
     ButtonBuilder, 
     ButtonStyle,
     PermissionsBitField,
-    Events,           // Nowe: do obsługi ClientReady
-    MessageFlags      // Nowe: do obsługi Ephemeral
+    Events,
+    MessageFlags 
 } = require('discord.js');
 const { DisTube } = require('distube');
 const ffmpegPath = require('ffmpeg-static');
@@ -103,7 +103,10 @@ async function handleMassDm(source, role, contentToSend) {
         return;
     }
 
-    if (source.isCommand && source.isCommand()) await source.deferReply();
+    // Używamy deferReply, aby uniknąć błędu 10062 (Unknown interaction) przy dużej liczbie osób
+    if (source.isCommand && source.isCommand()) {
+        await source.deferReply({ flags: MessageFlags.Ephemeral });
+    }
 
     const guild = source.guild;
     await guild.members.fetch();
@@ -136,7 +139,7 @@ async function handleMassDm(source, role, contentToSend) {
     }
 
     const finalMsg = `✅ Zakończono!\nWysłano: ${sentCount}\nZablokowane PW: ${errorCount}`;
-    if (source.isCommand && source.isCommand()) await source.followUp(finalMsg);
+    if (source.isCommand && source.isCommand()) await source.followUp({ content: finalMsg, flags: MessageFlags.Ephemeral });
     else await source.channel.send(finalMsg);
 }
 
@@ -144,7 +147,6 @@ async function handleMassDm(source, role, contentToSend) {
 // START BOTA I REJESTRACJA KOMEND
 // ==========================================
 
-// POPRAWKA: Używamy Events.ClientReady zamiast 'ready'
 client.once(Events.ClientReady, async () => {
 	console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
 
@@ -181,17 +183,20 @@ client.on(Events.InteractionCreate, async interaction => {
         if (!voiceChannel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
 
         const query = interaction.options.getString('utwor');
-        // POPRAWKA: flags: MessageFlags.Ephemeral zamiast ephemeral: true
-        await interaction.reply({ content: `🔍 Szukam: **${query}**...`, flags: MessageFlags.Ephemeral });
+        
+        // ZMIANA: Używamy deferReply, żeby bot miał więcej czasu i nie wywalał "Unknown interaction"
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.editReply({ content: `🔍 Szukam: **${query}**...` });
 
         try {
             await distube.play(voiceChannel, query, {
                 member: interaction.member,
                 textChannel: interaction.channel,
             });
+            // Sukces obsłuży event 'playSong' lub 'addSong'
         } catch (e) {
             console.error('Błąd play:', e);
-            await interaction.followUp({ content: '❌ Błąd odtwarzania.', flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: '❌ Błąd odtwarzania (sprawdź konsolę).' });
         }
     }
 
@@ -216,7 +221,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const queue = distube.getQueue(interaction.guildId);
         if (!queue) return interaction.reply({ content: 'Pusto.', flags: MessageFlags.Ephemeral });
         const q = queue.songs.slice(0, 10).map((s, i) => `${i === 0 ? 'Gra:' : i + '.'} ${s.name}`).join('\n');
-        await interaction.reply(`**Kolejka:**\n${q}`);
+        await interaction.reply({ content: `**Kolejka:**\n${q}`, flags: MessageFlags.Ephemeral });
     }
 
     // --- /fembed ---
