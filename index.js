@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa z Lavalink (4 Nodes)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (Fix Node Error)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -32,7 +32,7 @@ const emptyTimers = new Map();
 const lastPanelMessage = new Map(); 
 
 // ==========================================
-// KONFIGURACJA LAVALINK (4 NODES)
+// KONFIGURACJA LAVALINK (3 STABILNE NODES)
 // ==========================================
 const NODES = [
     // 1. Główny (AjieDev)
@@ -54,15 +54,9 @@ const NODES = [
         name: 'Oddblox_SGP',
         url: 's13.oddblox.us:28405',
         auth: 'quangloc2018',
-        secure: false // Port inny niż 443, bez SSL
-    },
-    // 4. Zapasowy (Karing)
-    {
-        name: 'Karing_Tech', 
-        url: 'lavalink.karing.tech:443', 
-        auth: 'youshallnotpass', 
-        secure: true 
+        secure: false 
     }
+    // Usunąłem Karing_Tech bo jest martwy
 ];
 
 // ==========================================
@@ -133,10 +127,11 @@ kazagumo.on("playerStart", async (player, track) => {
         new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
     );
 
-    // Info o nodzie i stanie
     let footerText = `🔊 Vol: ${player.volume}% | 🔁 Pętla: ${loopStatus}`;
-    const currentNode = kazagumo.shoukaku.getNode();
-    footerText += ` | 📡 Node: ${currentNode ? currentNode.name : 'Szukam...'}`;
+    
+    // NAPRAWA BŁĘDU: Pobieramy nazwę noda bezpośrednio z instancji playera
+    const nodeName = player.shoukaku.node ? player.shoukaku.node.name : 'Unknown';
+    footerText += ` | 📡 Node: ${nodeName}`;
     
     embed.setFooter({ text: footerText });
 
@@ -199,13 +194,9 @@ kazagumo.on("playerEmpty", async (player) => {
     emptyTimers.set(player.guildId, timer);
 });
 
-// LOGI LAVALINK
-kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest GOTOWY!`));
-kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} BŁĄD:`, error));
-kazagumo.shoukaku.on('close', (name, code, reason) => console.warn(`⚠️ Lavalink Node ${name} ROZŁĄCZONY: ${reason}`));
-kazagumo.shoukaku.on('disconnect', (name, players, moved) => {
-    if (moved) console.log(`ℹ️ Node ${name} rozłączony, gracze przeniesieni.`);
-});
+kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest gotowy!`));
+kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} błąd:`, error));
+kazagumo.shoukaku.on('close', (name, code, reason) => console.warn(`⚠️ Lavalink Node ${name} rozłączony: ${reason}`));
 
 // ==========================================
 // FUNKCJE POMOCNICZE
@@ -423,7 +414,6 @@ client.on(Events.InteractionCreate, async interaction => {
                     emptyTimers.delete(interaction.guildId);
                 }
 
-                // Kazagumo sam wybierze najlepszy Node
                 const player = await kazagumo.createPlayer({
                     guildId: interaction.guildId,
                     textId: interaction.channelId,
