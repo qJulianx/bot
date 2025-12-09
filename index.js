@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa (Wersja ULTIMATE)!'));
+app.get('/', (req, res) => res.send('Bot działa (Stable Nodes Only)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -49,28 +49,21 @@ function checkPermissions(member) {
 }
 
 // ==========================================
-// KONFIGURACJA LAVALINK (MULTI-NODE)
+// KONFIGURACJA LAVALINK (TYLKO STABILNE)
 // ==========================================
 const NODES = [
-    // 1. GŁÓWNY
+    // 1. GŁÓWNY (Najlepszy)
     {
         name: 'AjieDev-V4', 
         url: 'lava-v4.ajieblogs.eu.org:443', 
         auth: 'https://dsc.gg/ajidevserver', 
         secure: true 
     },
-    // 2. ZAPASOWY 1
+    // 2. ZAPASOWY (Też bardzo dobry)
     {
         name: 'Serenetia-V4',
         url: 'lavalinkv4.serenetia.com:443',
         auth: 'https://dsc.gg/ajidevserver',
-        secure: true
-    },
-    // 3. ZAPASOWY 2
-    {
-        name: 'Fedot_Compot',
-        url: 'lavalink.fedotcompot.net:443',
-        auth: 'https://discord.gg/bXXCZzKAyp',
         secure: true
     }
 ];
@@ -131,6 +124,16 @@ kazagumo.on("playerStart", async (player, track) => {
     const channel = client.channels.cache.get(player.textId);
     if (!channel) return;
 
+    // 1. Usuwamy stary panel ZANIM wyślemy nowy (zmniejsza szansę na spam)
+    if (lastPanelMessage.has(player.guildId)) {
+        const lastMsgId = lastPanelMessage.get(player.guildId);
+        try {
+            const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
+            if (oldMsg) await oldMsg.delete();
+        } catch (e) {}
+        lastPanelMessage.delete(player.guildId);
+    }
+
     const embed = new EmbedBuilder()
         .setTitle('🎶 Gramy:')
         .setDescription(`[${track.title}](${track.uri})`)
@@ -161,35 +164,9 @@ kazagumo.on("playerStart", async (player, track) => {
     footerText += ` | 📡 Node: ${nodeName}`;
     embed.setFooter({ text: footerText });
 
-    // --- LOGIKA SMART PANELU ---
-    let messageUpdated = false;
-    const lastMsgId = lastPanelMessage.get(player.guildId);
-
-    if (lastMsgId) {
-        const lastChannelMsgId = channel.lastMessageId;
-        // Jeśli ostatnia wiadomość na kanale to nasz panel -> Edytujemy
-        if (lastChannelMsgId === lastMsgId) {
-            try {
-                const existingMsg = await channel.messages.fetch(lastMsgId);
-                if (existingMsg) {
-                    await existingMsg.edit({ embeds: [embed], components: [row] });
-                    messageUpdated = true;
-                }
-            } catch (e) { messageUpdated = false; }
-        } else {
-            // Jeśli ktoś coś napisał -> Usuwamy stary panel
-            try {
-                const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
-                if (oldMsg) await oldMsg.delete();
-            } catch (e) {}
-        }
-    }
-
-    // Jeśli nie edytowaliśmy -> Wysyłamy nowy
-    if (!messageUpdated) {
-        const msg = await channel.send({ embeds: [embed], components: [row] });
-        lastPanelMessage.set(player.guildId, msg.id);
-    }
+    // 2. Wysyłamy nową wiadomość
+    const msg = await channel.send({ embeds: [embed], components: [row] });
+    lastPanelMessage.set(player.guildId, msg.id);
 });
 
 kazagumo.on("playerEnd", (player) => {});
@@ -349,7 +326,6 @@ client.once(Events.ClientReady, async () => {
 // ==========================================
 client.on(Events.InteractionCreate, async interaction => {
     
-    // PRZYCISKI
     if (interaction.isButton()) {
         const player = kazagumo.players.get(interaction.guildId);
 
@@ -380,7 +356,6 @@ client.on(Events.InteractionCreate, async interaction => {
             }
             if (interaction.customId === 'music_stop') {
                 player.destroy();
-                // Sprzątanie po STOP
                 if (lastPanelMessage.has(interaction.guildId)) {
                     const id = lastPanelMessage.get(interaction.guildId);
                     interaction.channel.messages.fetch(id).then(m => m.delete()).catch(() => {});
@@ -394,7 +369,6 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // KOMENDY SLASH
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'play') {
             const { channel } = interaction.member.voice;
@@ -503,7 +477,7 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ==========================================
-// KOMENDY TEKSTOWE (PRZYWRÓCONE!)
+// KOMENDY TEKSTOWE
 // ==========================================
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
