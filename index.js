@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa z Lavalink (High Availability)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (SoundCloud Default)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -32,31 +32,27 @@ const emptyTimers = new Map();
 const lastPanelMessage = new Map(); 
 
 // ==========================================
-// KONFIGURACJA LAVALINK (PRIORYTET + BACKUP)
+// KONFIGURACJA LAVALINK (NODES)
 // ==========================================
 const NODES = [
-    // 1. GŁÓWNY (Twój obecny, sprawdzony)
     {
         name: 'AjieDev-V4', 
         url: 'lava-v4.ajieblogs.eu.org:443', 
         auth: 'https://dsc.gg/ajidevserver', 
         secure: true 
     },
-    // 2. BACKUP 1 (Serenetia - Bardzo stabilny)
     {
         name: 'Serenetia-V4',
         url: 'lavalinkv4.serenetia.com:443',
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
     },
-    // 3. BACKUP 2 (Fedot Compot - Obsługuje dużo źródeł)
     {
         name: 'Fedot_Compot',
         url: 'lavalink.fedotcompot.net:443',
         auth: 'https://discord.gg/bXXCZzKAyp',
         secure: true
     },
-    // 4. BACKUP 3 (Oddblox - Inny port, bez SSL, jako ostateczność)
     {
         name: 'Oddblox_SGP',
         url: 's13.oddblox.us:28405',
@@ -92,8 +88,9 @@ const client = new Client({
     ],
 });
 
+// ZMIANA: defaultSearchEngine ustawiony na 'soundcloud' dla większej stabilności
 const kazagumo = new Kazagumo({
-    defaultSearchEngine: "youtube", 
+    defaultSearchEngine: "soundcloud", 
     send: (guildId, payload) => {
         const guild = client.guilds.cache.get(guildId);
         if (guild) guild.shard.send(payload);
@@ -114,7 +111,8 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         if (oldState.channelId && !newState.channelId) {
             const player = kazagumo.players.get(oldState.guild.id);
             if (player) {
-                console.log(`[Auto-Fix] Bot wyrzucony. Niszczę playera.`);
+                // Sprawdzamy czy to nie jest celowe wyjście (destroy)
+                // Jeśli player istnieje w pamięci, ale bot zniknął z kanału - niszczymy
                 player.destroy();
                 if (lastPanelMessage.has(oldState.guild.id)) lastPanelMessage.delete(oldState.guild.id);
                 if (emptyTimers.has(oldState.guild.id)) {
@@ -164,7 +162,6 @@ kazagumo.on("playerStart", async (player, track) => {
     );
 
     let footerText = `🔊 Vol: ${player.volume}% | 🔁 Pętla: ${loopStatus}`;
-    // Pobieramy nazwę noda, który aktualnie obsługuje ten stream
     const nodeName = player.shoukaku.node ? player.shoukaku.node.name : 'Auto';
     footerText += ` | 📡 Node: ${nodeName}`;
     
@@ -195,6 +192,15 @@ kazagumo.on("playerStart", async (player, track) => {
         const msg = await channel.send({ embeds: [embed], components: [row] });
         lastPanelMessage.set(player.guildId, msg.id);
     }
+});
+
+// NOWE: Obsługa błędów odtwarzania (żebyś wiedział czemu skipuje)
+kazagumo.on("playerException", (player, error) => {
+    const channel = client.channels.cache.get(player.textId);
+    if (channel) {
+        channel.send(`⚠️ **Błąd odtwarzania:** Lavalink nie mógł załadować utworu (prawdopodobnie blokada YouTube). Pomijam...`);
+    }
+    console.error("Lavalink Player Error:", error);
 });
 
 kazagumo.on("playerEnd", (player) => {});
@@ -229,11 +235,10 @@ kazagumo.on("playerEmpty", async (player) => {
     emptyTimers.set(player.guildId, timer);
 });
 
-// LOGOWANIE BŁĘDÓW LAVALINK (Bez wywalania bota)
 kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest GOTOWY!`));
 kazagumo.shoukaku.on('error', (name, error) => {
-    // To tylko informacja w konsoli, bot sam przełączy się na inny serwer
-    console.error(`❌ Lavalink Node ${name} BŁĄD (zostanie pominięty):`, error.message);
+    // Ignorujemy błędy połączenia, bot sam zmieni node
+    console.error(`❌ Lavalink Node ${name} BŁĄD (możliwe przełączenie):`, error.message);
 });
 kazagumo.shoukaku.on('close', (name, code, reason) => console.warn(`⚠️ Lavalink Node ${name} rozłączony.`));
 
@@ -470,7 +475,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 });
 
                 const result = await kazagumo.search(query, { requester: interaction.user });
-                if (!result.tracks.length) return interaction.editReply("❌ Nie znaleziono utworu.");
+                if (!result.tracks.length) return interaction.editReply("❌ Nie znaleziono utworu. Spróbuj użyć **SoundCloud**.");
 
                 if (result.type === "PLAYLIST") {
                     for (let track of result.tracks) player.queue.add(track);
