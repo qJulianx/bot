@@ -23,7 +23,7 @@ const {
 } = require('discord.js');
 const { DisTube } = require('distube');
 
-// --- IMPORTY PLUGINÓW (TRYB SMART) ---
+// --- IMPORTY PLUGINÓW ---
 const { YtDlpPlugin } = require('@distube/yt-dlp');
 const { SoundCloudPlugin } = require('@distube/soundcloud');
 const { SpotifyPlugin } = require('@distube/spotify');
@@ -48,7 +48,7 @@ const ROLE_PW_ID = '1447757045947174972';
 const ROLE_EMBED_ID = '1447764029882896487';
 
 // ==========================================
-// KONFIGURACJA DISTUBE (FULL SMART MODE)
+// KONFIGURACJA DISTUBE (POPRAWIONA)
 // ==========================================
 const distube = new DisTube(client, {
     emitNewSongOnly: true,
@@ -56,13 +56,9 @@ const distube = new DisTube(client, {
         path: ffmpegPath, 
     },
     plugins: [
-        // 1. Spotify - obsługuje linki do playlist i piosenek Spotify
-        new SpotifyPlugin({
-            emitEventsAfterFetching: true
-        }),
-        // 2. SoundCloud - główne źródło wyszukiwania (omija blokady YT)
+        // POPRAWKA: Pusty konstruktor dla Spotify (stara opcja powodowała błąd)
+        new SpotifyPlugin(), 
         new SoundCloudPlugin(),
-        // 3. Yt-Dlp - "Odkurzacz", obsługuje YouTube, TikTok, Facebook i 700+ innych stron
         new YtDlpPlugin({ update: true }) 
     ]
 });
@@ -72,7 +68,6 @@ const distube = new DisTube(client, {
 // ==========================================
 distube
     .on('playSong', (queue, song) => {
-        // Logika ładnego wyświetlania źródła
         let sourceIcon = '🎵';
         if (song.source === 'youtube') sourceIcon = 'YouTube ▶️';
         if (song.source === 'soundcloud') sourceIcon = 'SoundCloud ☁️';
@@ -95,10 +90,9 @@ distube
     .on('error', (channel, e) => {
         console.error('BŁĄD DISTUBE:', e);
         
-        // Specjalna obsługa błędów dla użytkownika
         let errorMsg = e.message.slice(0, 100);
-        if (e.message.includes("Sign in")) errorMsg = "Blokada YouTube (Hosting). Użyj wyszukiwania po tytule lub linku SoundCloud.";
-        if (e.message.includes("No result")) errorMsg = "Nie znaleziono utworu. Spróbuj wpisać dokładniejszy tytuł.";
+        if (e.message.includes("Sign in")) errorMsg = "Blokada YouTube. Bot automatycznie spróbuje SoundCloud przy następnym wyszukiwaniu.";
+        if (e.message.includes("No result")) errorMsg = "Nie znaleziono utworu na SoundCloud/Spotify.";
 
         if (channel) channel.send(`❌ Błąd: ${errorMsg}`);
     });
@@ -183,7 +177,7 @@ client.once(Events.ClientReady, async () => {
     const commands = [
         new SlashCommandBuilder().setName('pw').setDescription('Masowa wiadomość DM').addRoleOption(o => o.setName('ranga').setDescription('Ranga').setRequired(true)).addStringOption(o => o.setName('wiadomosc').setDescription('Treść').setRequired(true)),
         new SlashCommandBuilder().setName('fembed').setDescription('Kreator Embedów').addChannelOption(o => o.setName('kanal').setDescription('Gdzie wysłać?')),
-        new SlashCommandBuilder().setName('play').setDescription('Odtwarza muzykę z wielu źródeł').addStringOption(o => o.setName('utwor').setDescription('Link (Spotify/SC/TT) lub Tytuł').setRequired(true)),
+        new SlashCommandBuilder().setName('play').setDescription('Odtwarza muzykę').addStringOption(o => o.setName('utwor').setDescription('Link (Spotify/SC) lub Tytuł').setRequired(true)),
         new SlashCommandBuilder().setName('stop').setDescription('Zatrzymuje muzykę'),
         new SlashCommandBuilder().setName('skip').setDescription('Pomija utwór'),
         new SlashCommandBuilder().setName('queue').setDescription('Pokazuje kolejkę'),
@@ -218,10 +212,10 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.editReply({ content: `🔍 Analizuję źródło: **${query}**...` });
 
         // LOGIKA SMART:
-        // 1. Jeśli to link (http) -> Bot sam wybierze plugin (Spotify, SoundCloud, YT-DLP, TikTok itp.)
-        // 2. Jeśli to tekst (np. "Diho") -> Wymuszamy SoundCloud, bo YouTube na Renderze nie działa przy wyszukiwaniu.
-        
+        // Render ma zablokowany YouTube.
+        // Jeśli to NIE jest link, wymuszamy szukanie na SoundCloud ("scsearch:").
         if (!query.startsWith('http')) {
+            console.log(`Wykryto tekst. Przełączam na SoundCloud: scsearch:${query}`); // Log dla pewności
             query = 'scsearch:' + query; 
         }
 
@@ -301,7 +295,7 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ==========================================
-// KOMENDY TEKSTOWE (SMART MODE)
+// KOMENDY TEKSTOWE
 // ==========================================
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
