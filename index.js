@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (AjieDev)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -21,13 +21,27 @@ const {
     Events,
     MessageFlags 
 } = require('discord.js');
-const { DisTube } = require('distube');
+const { Kazagumo } = require("kazagumo");
+const { Connectors } = require("shoukaku");
 
-// --- IMPORTY PLUGINÓW ---
-const { YtDlpPlugin } = require('@distube/yt-dlp');
-const { SoundCloudPlugin } = require('@distube/soundcloud');
-const { SpotifyPlugin } = require('@distube/spotify');
-const ffmpegPath = require('ffmpeg-static');
+// ==========================================
+// KONFIGURACJA LAVALINK (DANE OD CIEBIE)
+// ==========================================
+const NODES = [
+    {
+        name: 'AjieDev-V4', 
+        url: 'lava-v4.ajieblogs.eu.org:443', // Host + Port
+        auth: 'https://dsc.gg/ajidevserver', // Hasło
+        secure: true                         // True, bo port 443
+    }
+];
+
+// ==========================================
+// TWOJA KONFIGURACJA (ID)
+// ==========================================
+const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
+const ROLE_PW_ID = '1447757045947174972';
+const ROLE_EMBED_ID = '1447764029882896487';
 
 const client = new Client({
     intents: [
@@ -39,68 +53,47 @@ const client = new Client({
     ],
 });
 
-// ==========================================
-// KONFIGURACJA
-// ==========================================
+// Tworzymy menedżera muzyki (Kazagumo)
+const kazagumo = new Kazagumo({
+    defaultSearchEngine: "youtube", // Ten Lavalink obsługuje YT, więc możemy tu zostawić youtube
+    send: (guildId, payload) => {
+        const guild = client.guilds.cache.get(guildId);
+        if (guild) guild.shard.send(payload);
+    }
+}, new Connectors.DiscordJS(client), NODES);
 
-const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
-const ROLE_PW_ID = '1447757045947174972';
-const ROLE_EMBED_ID = '1447764029882896487';
+// ==========================================
+// EVENTY MUZYCZNE (Kazagumo)
+// ==========================================
+kazagumo.on("playerStart", (player, track) => {
+    const channel = client.channels.cache.get(player.textId);
+    if (!channel) return;
 
-// ==========================================
-// KONFIGURACJA DISTUBE
-// ==========================================
-const distube = new DisTube(client, {
-    emitNewSongOnly: true,
-    // Debugowanie pozwala zobaczyć więcej szczegółów w konsoli Rendera
-    // savePreviousSongs: false, // Oszczędza RAM
-    ffmpeg: {
-        path: ffmpegPath, 
-    },
-    plugins: [
-        new SpotifyPlugin(), 
-        new SoundCloudPlugin(),
-        new YtDlpPlugin({ update: true }) 
-    ]
+    const embed = new EmbedBuilder()
+        .setTitle('🎶 Gramy:')
+        .setDescription(`[${track.title}](${track.uri})`)
+        .addFields(
+            { name: 'Autor', value: track.author || 'Nieznany', inline: true },
+            { name: 'Dodał', value: track.requester ? `<@${track.requester.id}>` : 'Ktoś', inline: true }
+        )
+        .setColor('Green');
+    channel.send({ embeds: [embed] });
 });
 
-// ==========================================
-// EVENTY MUZYCZNE
-// ==========================================
-distube
-    .on('playSong', (queue, song) => {
-        let sourceIcon = '🎵';
-        if (song.source === 'youtube') sourceIcon = 'YouTube ▶️';
-        if (song.source === 'soundcloud') sourceIcon = 'SoundCloud ☁️';
-        if (song.source === 'spotify') sourceIcon = 'Spotify 💚';
+kazagumo.on("playerEnd", (player) => {
+    // Utwór się skończył
+});
 
-        const embed = new EmbedBuilder()
-            .setTitle(`${sourceIcon} Gramy:`)
-            .setDescription(`[${song.name}](${song.url})`)
-            .addFields(
-                { name: 'Czas', value: song.formattedDuration, inline: true },
-                { name: 'Dodał', value: song.user.toString(), inline: true },
-                { name: 'Źródło', value: song.source || 'Inne', inline: true }
-            )
-            .setThumbnail(song.thumbnail)
-            .setColor('Green');
-        queue.textChannel.send({ embeds: [embed] });
-    })
-    .on('addSong', (queue, song) => queue.textChannel.send(`✅ Dodano: **${song.name}** - \`${song.formattedDuration}\``))
-    .on('addList', (queue, playlist) => queue.textChannel.send(`✅ Dodano playlistę: **${playlist.name}** (${playlist.songs.length} utworów)`))
-    .on('error', (channel, e) => {
-        // NAPRAWIONY ERROR HANDLER (ŻEBY NIE CRASHOWAŁ BOTA)
-        console.error('BŁĄD DISTUBE:', e);
-        
-        // Bezpieczne pobieranie treści błędu
-        const errMessage = e.message || String(e);
-        let userMsg = errMessage.slice(0, 150);
+kazagumo.on("playerEmpty", (player) => {
+    const channel = client.channels.cache.get(player.textId);
+    if (channel) channel.send("⏹️ Kolejka pusta. Wychodzę.");
+    player.destroy();
+});
 
-        if (errMessage.includes("Sign in")) userMsg = "Blokada YouTube (Hosting). Spróbuj innego utworu lub linku SoundCloud.";
-        if (errMessage.includes("NO_RESULT")) userMsg = "Nie znaleziono utworu. Hosting może być blokowany przez serwis.";
-
-        if (channel) channel.send(`❌ Błąd: ${userMsg}`);
-    });
+// Logowanie stanu Lavalink
+kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest gotowy i połączony!`));
+kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} błąd:`, error));
+kazagumo.shoukaku.on('close', (name, code, reason) => console.warn(`⚠️ Lavalink Node ${name} zamknięty: ${reason}`));
 
 // ==========================================
 // FUNKCJE POMOCNICZE
@@ -182,7 +175,7 @@ client.once(Events.ClientReady, async () => {
     const commands = [
         new SlashCommandBuilder().setName('pw').setDescription('Masowa wiadomość DM').addRoleOption(o => o.setName('ranga').setDescription('Ranga').setRequired(true)).addStringOption(o => o.setName('wiadomosc').setDescription('Treść').setRequired(true)),
         new SlashCommandBuilder().setName('fembed').setDescription('Kreator Embedów').addChannelOption(o => o.setName('kanal').setDescription('Gdzie wysłać?')),
-        new SlashCommandBuilder().setName('play').setDescription('Odtwarza muzykę').addStringOption(o => o.setName('utwor').setDescription('Link (Spotify/SC) lub Tytuł').setRequired(true)),
+        new SlashCommandBuilder().setName('play').setDescription('Odtwarza muzykę').addStringOption(o => o.setName('utwor').setDescription('Link lub Tytuł').setRequired(true)),
         new SlashCommandBuilder().setName('stop').setDescription('Zatrzymuje muzykę'),
         new SlashCommandBuilder().setName('skip').setDescription('Pomija utwór'),
         new SlashCommandBuilder().setName('queue').setDescription('Pokazuje kolejkę'),
@@ -206,63 +199,81 @@ client.once(Events.ClientReady, async () => {
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // --- /play ---
+    // --- /play (LAVALINK) ---
     if (interaction.commandName === 'play') {
-        const voiceChannel = interaction.member.voice.channel;
-        if (!voiceChannel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
+        const { channel } = interaction.member.voice;
+        if (!channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
 
-        let query = interaction.options.getString('utwor');
-        
+        const query = interaction.options.getString('utwor');
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        await interaction.editReply({ content: `🔍 Szukam: **${query}**...` });
-
-        // LOGIKA SMART:
-        if (!query.startsWith('http')) {
-            console.log(`[SMART] Tekst wykryty -> SoundCloud: scsearch:${query}`);
-            query = 'scsearch:' + query; 
-        } else {
-            console.log(`[SMART] Link wykryty: ${query}`);
-        }
 
         try {
-            await distube.play(voiceChannel, query, {
-                member: interaction.member,
-                textChannel: interaction.channel,
+            // 1. Tworzymy odtwarzacz
+            const player = await kazagumo.createPlayer({
+                guildId: interaction.guildId,
+                textId: interaction.channelId,
+                voiceId: channel.id,
+                volume: 100
             });
+
+            // 2. Szukamy utworu (ten Lavalink obsługuje YT, Spotify, Soundcloud sam w sobie)
+            const result = await kazagumo.search(query, { requester: interaction.user });
+            
+            if (!result.tracks.length) {
+                return interaction.editReply("❌ Nie znaleziono utworu. Spróbuj podać bezpośredni link.");
+            }
+
+            // 3. Dodajemy do kolejki
+            if (result.type === "PLAYLIST") {
+                for (let track of result.tracks) player.queue.add(track);
+                await interaction.editReply(`✅ Dodano playlistę: **${result.playlistName}** (${result.tracks.length} utworów)`);
+            } else {
+                player.queue.add(result.tracks[0]);
+                await interaction.editReply(`✅ Dodano do kolejki: **${result.tracks[0].title}**`);
+            }
+
+            // 4. Jeśli nic nie gra, startujemy
+            if (!player.playing && !player.paused) player.play();
+
         } catch (e) {
-            console.error('Błąd play:', e);
-            const errMsg = e.message || String(e);
-            await interaction.editReply({ content: `❌ Błąd odtwarzania: ${errMsg.slice(0, 100)}` });
+            console.error('Błąd Lavalink:', e);
+            await interaction.editReply({ content: `❌ Błąd połączenia z serwerem muzycznym. Spróbuj później.` });
         }
     }
 
+    // --- /stop ---
     if (interaction.commandName === 'stop') {
-        const queue = distube.getQueue(interaction.guildId);
-        if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
-        queue.stop();
-        await interaction.reply('⏹️ Zatrzymano.');
+        const player = kazagumo.players.get(interaction.guildId);
+        if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+        player.destroy();
+        await interaction.reply('⏹️ Zatrzymano i rozłączono.');
     }
 
+    // --- /skip ---
     if (interaction.commandName === 'skip') {
-        const queue = distube.getQueue(interaction.guildId);
-        if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
-        try { await queue.skip(); await interaction.reply('⏭️ Pominięto.'); } 
-        catch { await interaction.reply({ content: '⚠️ To ostatni utwór.', flags: MessageFlags.Ephemeral }); }
+        const player = kazagumo.players.get(interaction.guildId);
+        if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+        player.skip();
+        await interaction.reply('⏭️ Pominięto.');
     }
 
+    // --- /queue ---
     if (interaction.commandName === 'queue') {
-        const queue = distube.getQueue(interaction.guildId);
-        if (!queue) return interaction.reply({ content: 'Pusto.', flags: MessageFlags.Ephemeral });
-        const q = queue.songs.slice(0, 10).map((s, i) => `${i === 0 ? 'Gra:' : i + '.'} ${s.name} (${s.source})`).join('\n');
-        await interaction.reply({ content: `**Kolejka:**\n${q}`, flags: MessageFlags.Ephemeral });
+        const player = kazagumo.players.get(interaction.guildId);
+        if (!player || player.queue.length === 0) return interaction.reply({ content: 'Pusto.', flags: MessageFlags.Ephemeral });
+        
+        const q = player.queue.map((track, i) => `${i + 1}. ${track.title}`).slice(0, 10).join('\n');
+        await interaction.reply({ content: `**Kolejka (Lavalink):**\n${q}`, flags: MessageFlags.Ephemeral });
     }
 
+    // --- /fembed ---
     if (interaction.commandName === 'fembed') {
         if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
         const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
         await interaction.showModal(createEmbedModal(targetChannel.id));
     }
 
+    // --- /pw ---
     if (interaction.commandName === 'pw') {
         const role = interaction.options.getRole('ranga');
         const messageContent = interaction.options.getString('wiadomosc');
@@ -297,42 +308,6 @@ client.on(Events.InteractionCreate, async interaction => {
             await channel.send({ embeds: [embed] });
             await interaction.reply({ content: `✅ Wysłano na ${channel}.`, flags: MessageFlags.Ephemeral });
         } catch (err) { await interaction.reply({ content: '❌ Błąd.', flags: MessageFlags.Ephemeral }); }
-    }
-});
-
-// ==========================================
-// KOMENDY TEKSTOWE
-// ==========================================
-client.on(Events.MessageCreate, async message => {
-    if (message.author.bot) return;
-
-    if (message.content.startsWith('!play')) {
-        const voiceChannel = message.member.voice.channel;
-        if (!voiceChannel) return message.reply('❌ Wejdź na kanał głosowy!');
-        let query = message.content.split(' ').slice(1).join(' ');
-        if (!query) return message.reply('❌ Podaj tytuł.');
-        
-        if (!query.startsWith('http')) {
-            query = 'scsearch:' + query;
-        }
-
-        try { await distube.play(voiceChannel, query, { member: message.member, textChannel: message.channel, message: message }); message.react('🎵'); } 
-        catch (e) { console.error(e); }
-    }
-    if (message.content === '!stop') { distube.getQueue(message)?.stop(); message.reply('⏹️'); }
-    if (message.content === '!skip') { try { await distube.getQueue(message)?.skip(); message.reply('⏭️'); } catch {} }
-
-    if (message.content === '!fembed') {
-        if (!message.member.roles.cache.has(ROLE_EMBED_ID)) return message.reply('⛔ Brak uprawnień.');
-        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('openEmbedModal').setLabel('Stwórz').setStyle(ButtonStyle.Primary));
-        await message.reply({ content: 'Otwórz kreator:', components: [row] });
-    }
-    if (message.content.startsWith('!pw')) {
-        const args = message.content.split(' ');
-        if (args.length < 3) return message.reply('Użycie: `!pw @Ranga Wiadomość`');
-        const role = message.mentions.roles.first() || message.guild.roles.cache.get(args[1]);
-        if (!role) return message.reply('Brak rangi.');
-        await handleMassDm(message, role, args.slice(2).join(' '));
     }
 });
 
