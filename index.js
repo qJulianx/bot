@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa z Lavalink (Fix Node Error)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (Smart Panel + Pętla + Volume)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -32,31 +32,15 @@ const emptyTimers = new Map();
 const lastPanelMessage = new Map(); 
 
 // ==========================================
-// KONFIGURACJA LAVALINK (3 STABILNE NODES)
+// KONFIGURACJA LAVALINK
 // ==========================================
 const NODES = [
-    // 1. Główny (AjieDev)
     {
         name: 'AjieDev-V4', 
         url: 'lava-v4.ajieblogs.eu.org:443', 
         auth: 'https://dsc.gg/ajidevserver', 
         secure: true 
-    },
-    // 2. Nowy (Fedot Compot)
-    {
-        name: 'Fedot_Compot',
-        url: 'lavalink.fedotcompot.net:443',
-        auth: 'https://discord.gg/bXXCZzKAyp',
-        secure: true
-    },
-    // 3. Nowy (Oddblox SGP)
-    {
-        name: 'Oddblox_SGP',
-        url: 's13.oddblox.us:28405',
-        auth: 'quangloc2018',
-        secure: false 
     }
-    // Usunąłem Karing_Tech bo jest martwy
 ];
 
 // ==========================================
@@ -76,6 +60,7 @@ const client = new Client({
     ],
 });
 
+// WAŻNE: savePreviousSongs: true
 const kazagumo = new Kazagumo({
     defaultSearchEngine: "youtube", 
     send: (guildId, payload) => {
@@ -113,6 +98,7 @@ kazagumo.on("playerStart", async (player, track) => {
         .setThumbnail(track.thumbnail || null)
         .setColor('Green');
 
+    // Info o pętli i głośności na panelu
     let loopStatus = 'OFF';
     if (player.loop === 'queue') loopStatus = 'Kolejka';
     if (player.loop === 'track') loopStatus = 'Utwór';
@@ -127,14 +113,12 @@ kazagumo.on("playerStart", async (player, track) => {
         new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
     );
 
-    let footerText = `🔊 Vol: ${player.volume}% | 🔁 Pętla: ${loopStatus}`;
-    
-    // NAPRAWA BŁĘDU: Pobieramy nazwę noda bezpośrednio z instancji playera
-    const nodeName = player.shoukaku.node ? player.shoukaku.node.name : 'Unknown';
-    footerText += ` | 📡 Node: ${nodeName}`;
-    
+    // Stopka z info o pętli i głośności
+    let footerText = `🔊 Głośność: ${player.volume}%`;
+    if (player.loop !== 'none') footerText += ` | 🔁 Pętla: ${loopStatus}`;
     embed.setFooter({ text: footerText });
 
+    // INTELIGENTNA OBSŁUGA WIADOMOŚCI
     let messageUpdated = false;
     const lastMsgId = lastPanelMessage.get(player.guildId);
 
@@ -196,7 +180,6 @@ kazagumo.on("playerEmpty", async (player) => {
 
 kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest gotowy!`));
 kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} błąd:`, error));
-kazagumo.shoukaku.on('close', (name, code, reason) => console.warn(`⚠️ Lavalink Node ${name} rozłączony: ${reason}`));
 
 // ==========================================
 // FUNKCJE POMOCNICZE
@@ -319,6 +302,7 @@ client.once(Events.ClientReady, async () => {
                         { name: '🔀 Losowa (Shuffle + Pętla)', value: 'random' }
                     )
             ),
+        // NOWOŚĆ: /volume
         new SlashCommandBuilder()
             .setName('volume')
             .setDescription('Ustawia głośność odtwarzania (0-200%)')
@@ -401,6 +385,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (interaction.isChatInputCommand()) {
 
+        // /play
         if (interaction.commandName === 'play') {
             const { channel } = interaction.member.voice;
             if (!channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
@@ -441,6 +426,7 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
+        // /stop
         if (interaction.commandName === 'stop') {
             const player = kazagumo.players.get(interaction.guildId);
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -448,6 +434,7 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.reply('⏹️ Zatrzymano i rozłączono.');
         }
 
+        // /skip
         if (interaction.commandName === 'skip') {
             const player = kazagumo.players.get(interaction.guildId);
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -455,12 +442,14 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.reply('⏭️ Pominięto.');
         }
 
+        // /queue
         if (interaction.commandName === 'queue') {
             const player = kazagumo.players.get(interaction.guildId);
             const queueText = generateQueueString(player);
             await interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
         }
 
+        // /pętla
         if (interaction.commandName === 'pętla') {
             const player = kazagumo.players.get(interaction.guildId);
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -489,6 +478,7 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
+        // NOWOŚĆ: /volume
         if (interaction.commandName === 'volume') {
             const player = kazagumo.players.get(interaction.guildId);
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -501,6 +491,7 @@ client.on(Events.InteractionCreate, async interaction => {
             return interaction.reply({ content: `🔊 Głośność ustawiona na **${volume}%**.`, flags: MessageFlags.Ephemeral });
         }
 
+        // /fembed i /pw
         if (interaction.commandName === 'fembed') {
             if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
             const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
