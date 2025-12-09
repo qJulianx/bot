@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa z Lavalink (Smart Panel)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (Smart Panel + Pętla)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -29,7 +29,7 @@ const { Connectors } = require("shoukaku");
 // ==========================================
 const twentyFourSeven = new Map(); 
 const emptyTimers = new Map();     
-const lastPanelMessage = new Map(); // ID ostatniego panelu
+const lastPanelMessage = new Map(); 
 
 // ==========================================
 // KONFIGURACJA LAVALINK
@@ -60,19 +60,25 @@ const client = new Client({
     ],
 });
 
+// WAŻNE: Dodano savePreviousSongs: true, żeby działała historia
 const kazagumo = new Kazagumo({
     defaultSearchEngine: "youtube", 
     send: (guildId, payload) => {
         const guild = client.guilds.cache.get(guildId);
         if (guild) guild.shard.send(payload);
     }
-}, new Connectors.DiscordJS(client), NODES);
+}, new Connectors.DiscordJS(client), NODES, {
+    extends: {
+        player: {
+            savePreviousSongs: true // Kluczowe dla historii
+        }
+    }
+});
 
 // ==========================================
 // EVENTY MUZYCZNE (SMART PANEL)
 // ==========================================
 kazagumo.on("playerStart", async (player, track) => {
-    // 1. Czyścimy timer wyjścia
     if (emptyTimers.has(player.guildId)) {
         clearTimeout(emptyTimers.get(player.guildId));
         emptyTimers.delete(player.guildId);
@@ -81,7 +87,6 @@ kazagumo.on("playerStart", async (player, track) => {
     const channel = client.channels.cache.get(player.textId);
     if (!channel) return;
 
-    // 2. Przygotowujemy dane (Embed + Przyciski)
     const embed = new EmbedBuilder()
         .setTitle('🎶 Gramy:')
         .setDescription(`[${track.title}](${track.uri})`)
@@ -93,6 +98,11 @@ kazagumo.on("playerStart", async (player, track) => {
         .setThumbnail(track.thumbnail || null)
         .setColor('Green');
 
+    // Info o pętli na panelu
+    let loopStatus = 'OFF';
+    if (player.loop === 'queue') loopStatus = 'Kolejka';
+    if (player.loop === 'track') loopStatus = 'Utwór';
+    
     const is247 = twentyFourSeven.get(player.guildId) || false;
 
     const row = new ActionRowBuilder().addComponents(
@@ -103,28 +113,26 @@ kazagumo.on("playerStart", async (player, track) => {
         new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
     );
 
-    // 3. INTELIGENTNA OBSŁUGA WIADOMOŚCI
+    // Jeśli pętla jest włączona, dodajemy info w stopce
+    if (player.loop !== 'none') {
+        embed.setFooter({ text: `🔁 Pętla: ${loopStatus}` });
+    }
+
+    // INTELIGENTNA OBSŁUGA WIADOMOŚCI
     let messageUpdated = false;
     const lastMsgId = lastPanelMessage.get(player.guildId);
 
     if (lastMsgId) {
-        // Sprawdzamy, czy ostatnia wiadomość na kanale to nasz panel
         const lastChannelMsgId = channel.lastMessageId;
-
         if (lastChannelMsgId === lastMsgId) {
-            // SCENARIUSZ A: Nikt nie pisał -> Edytujemy istniejącą wiadomość
             try {
                 const existingMsg = await channel.messages.fetch(lastMsgId);
                 if (existingMsg) {
                     await existingMsg.edit({ embeds: [embed], components: [row] });
                     messageUpdated = true;
                 }
-            } catch (e) { 
-                // Jeśli nie udało się edytować (np. ktoś usunął), wyślemy nową
-                messageUpdated = false; 
-            }
+            } catch (e) { messageUpdated = false; }
         } else {
-            // SCENARIUSZ B: Ktoś napisał -> Usuwamy starą (żeby nie było duplikatu)
             try {
                 const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
                 if (oldMsg) await oldMsg.delete();
@@ -132,21 +140,17 @@ kazagumo.on("playerStart", async (player, track) => {
         }
     }
 
-    // Jeśli nie udało się zaktualizować (bo ktoś pisał albo to pierwszy utwór), wysyłamy nową
     if (!messageUpdated) {
         const msg = await channel.send({ embeds: [embed], components: [row] });
         lastPanelMessage.set(player.guildId, msg.id);
     }
 });
 
-kazagumo.on("playerEnd", (player) => {
-    // Nic nie robimy
-});
+kazagumo.on("playerEnd", (player) => {});
 
 kazagumo.on("playerEmpty", async (player) => {
     const channel = client.channels.cache.get(player.textId);
     
-    // Usuwamy panel gdy kolejka się kończy (czystość na czacie)
     if (lastPanelMessage.has(player.guildId)) {
         const lastMsgId = lastPanelMessage.get(player.guildId);
         try {
@@ -174,7 +178,6 @@ kazagumo.on("playerEmpty", async (player) => {
     emptyTimers.set(player.guildId, timer);
 });
 
-// Logowanie stanu Lavalink
 kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest gotowy!`));
 kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} błąd:`, error));
 
@@ -248,6 +251,36 @@ async function handleMassDm(source, role, contentToSend) {
     else await source.channel.send(finalMsg);
 }
 
+// Funkcja generująca tekst kolejki (używana w przycisku i komendzie)
+function generateQueueString(player) {
+    if (!player) return 'Nic nie gra.';
+
+    // Pobieramy historię (ostatnie 5 utworów)
+    const prev = player.queue.previous || [];
+    const historyList = prev.slice(-5).map((t, i) => `🔙 ${i + 1}. ~~${t.title}~~`).join('\n');
+
+    // Obecny utwór
+    const current = `💿 **${player.queue.current?.title || 'Nieznany'}**`;
+
+    // Następne utwory (następne 10)
+    const nextList = player.queue.slice(0, 10).map((t, i) => `🔜 ${i + 1}. ${t.title}`).join('\n');
+
+    let finalString = '';
+    if (historyList) finalString += `**Już leciało:**\n${historyList}\n\n`;
+    finalString += `**Teraz gra:**\n${current}\n\n`;
+    
+    if (nextList) {
+        finalString += `**Następne w kolejce:**\n${nextList}`;
+    } else {
+        finalString += `**Następne w kolejce:**\n(Koniec kolejki)`;
+    }
+
+    // Dodajemy info o liczbie piosenek
+    if (player.queue.length > 10) finalString += `\n\n...i ${player.queue.length - 10} więcej.`;
+
+    return finalString;
+}
+
 // ==========================================
 // START BOTA
 // ==========================================
@@ -262,6 +295,21 @@ client.once(Events.ClientReady, async () => {
         new SlashCommandBuilder().setName('stop').setDescription('Zatrzymuje muzykę'),
         new SlashCommandBuilder().setName('skip').setDescription('Pomija utwór'),
         new SlashCommandBuilder().setName('queue').setDescription('Pokazuje kolejkę'),
+        // NOWOŚĆ: Komenda Pętla
+        new SlashCommandBuilder()
+            .setName('pętla')
+            .setDescription('Ustawia tryb pętli')
+            .addStringOption(option =>
+                option.setName('tryb')
+                    .setDescription('Wybierz tryb pętli')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: '❌ Wyłącz', value: 'off' },
+                        { name: '🔂 Utwór (jeden)', value: 'track' },
+                        { name: '🔁 Kolejka (wszystko)', value: 'queue' },
+                        { name: '🔀 Losowa (Shuffle + Pętla)', value: 'random' }
+                    )
+            ),
     ];
 
     const guild = client.guilds.cache.get(GUILD_ID);
@@ -314,7 +362,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
             if (interaction.customId === 'music_stop') {
                 player.destroy();
-                // Usuwamy panel po stopie
                 if (lastPanelMessage.has(interaction.guildId)) {
                     const lastMsgId = lastPanelMessage.get(interaction.guildId);
                     try {
@@ -327,15 +374,16 @@ client.on(Events.InteractionCreate, async interaction => {
             }
 
             if (interaction.customId === 'music_queue') {
-                 if (player.queue.length === 0) return interaction.reply({ content: 'Kolejka jest pusta (leci tylko to co teraz).', flags: MessageFlags.Ephemeral });
-                 const q = player.queue.map((track, i) => `${i + 1}. ${track.title}`).slice(0, 10).join('\n');
-                 return interaction.reply({ content: `**Następne w kolejce:**\n${q}`, flags: MessageFlags.Ephemeral });
+                 // Używamy nowej funkcji z historią
+                 const queueText = generateQueueString(player);
+                 return interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
             }
         }
     }
 
     if (interaction.isChatInputCommand()) {
 
+        // /play
         if (interaction.commandName === 'play') {
             const { channel } = interaction.member.voice;
             if (!channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
@@ -353,7 +401,9 @@ client.on(Events.InteractionCreate, async interaction => {
                     guildId: interaction.guildId,
                     textId: interaction.channelId,
                     voiceId: channel.id,
-                    volume: 100
+                    volume: 100,
+                    // Ważne: to musi tu być, żeby działało przy tworzeniu
+                    savePreviousSongs: true 
                 });
 
                 const result = await kazagumo.search(query, { requester: interaction.user });
@@ -375,6 +425,7 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
+        // /stop
         if (interaction.commandName === 'stop') {
             const player = kazagumo.players.get(interaction.guildId);
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -382,6 +433,7 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.reply('⏹️ Zatrzymano i rozłączono.');
         }
 
+        // /skip
         if (interaction.commandName === 'skip') {
             const player = kazagumo.players.get(interaction.guildId);
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -389,13 +441,43 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.reply('⏭️ Pominięto.');
         }
 
+        // /queue (z historią)
         if (interaction.commandName === 'queue') {
             const player = kazagumo.players.get(interaction.guildId);
-            if (!player || player.queue.length === 0) return interaction.reply({ content: 'Pusto.', flags: MessageFlags.Ephemeral });
-            const q = player.queue.map((track, i) => `${i + 1}. ${track.title}`).slice(0, 10).join('\n');
-            await interaction.reply({ content: `**Kolejka (Lavalink):**\n${q}`, flags: MessageFlags.Ephemeral });
+            const queueText = generateQueueString(player);
+            await interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
         }
 
+        // NOWOŚĆ: /pętla
+        if (interaction.commandName === 'pętla') {
+            const player = kazagumo.players.get(interaction.guildId);
+            if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+            
+            const mode = interaction.options.getString('tryb');
+
+            if (mode === 'off') {
+                player.setLoop('none');
+                return interaction.reply({ content: '❌ Pętla wyłączona.', flags: MessageFlags.Ephemeral });
+            }
+
+            if (mode === 'track') {
+                player.setLoop('track');
+                return interaction.reply({ content: '🔂 Pętla utworu włączona.', flags: MessageFlags.Ephemeral });
+            }
+
+            if (mode === 'queue') {
+                player.setLoop('queue');
+                return interaction.reply({ content: '🔁 Pętla kolejki włączona.', flags: MessageFlags.Ephemeral });
+            }
+
+            if (mode === 'random') {
+                player.setLoop('queue'); // Najpierw zapętlamy kolejkę
+                player.queue.shuffle();  // Potem ją mieszamy
+                return interaction.reply({ content: '🔀 Pętla losowa włączona (kolejka wymieszana i zapętlona).', flags: MessageFlags.Ephemeral });
+            }
+        }
+
+        // /fembed i /pw
         if (interaction.commandName === 'fembed') {
             if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
             const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
@@ -409,6 +491,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
+    // --- OBSŁUGA MODALA ---
     if (interaction.isModalSubmit() && interaction.customId.startsWith('embedModal')) {
         const targetChannelId = interaction.customId.split(':')[1];
         const title = interaction.fields.getTextInputValue('embedTitle');
@@ -452,7 +535,8 @@ client.on(Events.MessageCreate, async message => {
                 guildId: message.guildId,
                 textId: message.channelId,
                 voiceId: channel.id,
-                volume: 100
+                volume: 100,
+                savePreviousSongs: true
             });
             const result = await kazagumo.search(query, { requester: message.author });
             if (!result.tracks.length) return message.reply("❌ Nie znaleziono.");
