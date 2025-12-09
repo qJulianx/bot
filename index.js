@@ -48,15 +48,16 @@ const ROLE_PW_ID = '1447757045947174972';
 const ROLE_EMBED_ID = '1447764029882896487';
 
 // ==========================================
-// KONFIGURACJA DISTUBE (POPRAWIONA)
+// KONFIGURACJA DISTUBE
 // ==========================================
 const distube = new DisTube(client, {
     emitNewSongOnly: true,
+    // Debugowanie pozwala zobaczyć więcej szczegółów w konsoli Rendera
+    // savePreviousSongs: false, // Oszczędza RAM
     ffmpeg: {
         path: ffmpegPath, 
     },
     plugins: [
-        // POPRAWKA: Pusty konstruktor dla Spotify (stara opcja powodowała błąd)
         new SpotifyPlugin(), 
         new SoundCloudPlugin(),
         new YtDlpPlugin({ update: true }) 
@@ -88,13 +89,17 @@ distube
     .on('addSong', (queue, song) => queue.textChannel.send(`✅ Dodano: **${song.name}** - \`${song.formattedDuration}\``))
     .on('addList', (queue, playlist) => queue.textChannel.send(`✅ Dodano playlistę: **${playlist.name}** (${playlist.songs.length} utworów)`))
     .on('error', (channel, e) => {
+        // NAPRAWIONY ERROR HANDLER (ŻEBY NIE CRASHOWAŁ BOTA)
         console.error('BŁĄD DISTUBE:', e);
         
-        let errorMsg = e.message.slice(0, 100);
-        if (e.message.includes("Sign in")) errorMsg = "Blokada YouTube. Bot automatycznie spróbuje SoundCloud przy następnym wyszukiwaniu.";
-        if (e.message.includes("No result")) errorMsg = "Nie znaleziono utworu na SoundCloud/Spotify.";
+        // Bezpieczne pobieranie treści błędu
+        const errMessage = e.message || String(e);
+        let userMsg = errMessage.slice(0, 150);
 
-        if (channel) channel.send(`❌ Błąd: ${errorMsg}`);
+        if (errMessage.includes("Sign in")) userMsg = "Blokada YouTube (Hosting). Spróbuj innego utworu lub linku SoundCloud.";
+        if (errMessage.includes("NO_RESULT")) userMsg = "Nie znaleziono utworu. Hosting może być blokowany przez serwis.";
+
+        if (channel) channel.send(`❌ Błąd: ${userMsg}`);
     });
 
 // ==========================================
@@ -201,7 +206,7 @@ client.once(Events.ClientReady, async () => {
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // --- /play (SMART MODE) ---
+    // --- /play ---
     if (interaction.commandName === 'play') {
         const voiceChannel = interaction.member.voice.channel;
         if (!voiceChannel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
@@ -209,14 +214,14 @@ client.on(Events.InteractionCreate, async interaction => {
         let query = interaction.options.getString('utwor');
         
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        await interaction.editReply({ content: `🔍 Analizuję źródło: **${query}**...` });
+        await interaction.editReply({ content: `🔍 Szukam: **${query}**...` });
 
         // LOGIKA SMART:
-        // Render ma zablokowany YouTube.
-        // Jeśli to NIE jest link, wymuszamy szukanie na SoundCloud ("scsearch:").
         if (!query.startsWith('http')) {
-            console.log(`Wykryto tekst. Przełączam na SoundCloud: scsearch:${query}`); // Log dla pewności
+            console.log(`[SMART] Tekst wykryty -> SoundCloud: scsearch:${query}`);
             query = 'scsearch:' + query; 
+        } else {
+            console.log(`[SMART] Link wykryty: ${query}`);
         }
 
         try {
@@ -226,7 +231,8 @@ client.on(Events.InteractionCreate, async interaction => {
             });
         } catch (e) {
             console.error('Błąd play:', e);
-            await interaction.editReply({ content: `❌ Błąd odtwarzania: ${e.message.slice(0, 100)}` });
+            const errMsg = e.message || String(e);
+            await interaction.editReply({ content: `❌ Błąd odtwarzania: ${errMsg.slice(0, 100)}` });
         }
     }
 
@@ -306,7 +312,6 @@ client.on(Events.MessageCreate, async message => {
         let query = message.content.split(' ').slice(1).join(' ');
         if (!query) return message.reply('❌ Podaj tytuł.');
         
-        // SMART LOGIC:
         if (!query.startsWith('http')) {
             query = 'scsearch:' + query;
         }
