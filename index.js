@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa z Lavalink (Smart Panel + Pętla)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (4 Nodes)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -32,13 +32,35 @@ const emptyTimers = new Map();
 const lastPanelMessage = new Map(); 
 
 // ==========================================
-// KONFIGURACJA LAVALINK
+// KONFIGURACJA LAVALINK (4 NODES)
 // ==========================================
 const NODES = [
+    // 1. Główny (AjieDev)
     {
         name: 'AjieDev-V4', 
         url: 'lava-v4.ajieblogs.eu.org:443', 
         auth: 'https://dsc.gg/ajidevserver', 
+        secure: true 
+    },
+    // 2. Nowy (Fedot Compot)
+    {
+        name: 'Fedot_Compot',
+        url: 'lavalink.fedotcompot.net:443',
+        auth: 'https://discord.gg/bXXCZzKAyp',
+        secure: true
+    },
+    // 3. Nowy (Oddblox SGP)
+    {
+        name: 'Oddblox_SGP',
+        url: 's13.oddblox.us:28405',
+        auth: 'quangloc2018',
+        secure: false // Port inny niż 443, bez SSL
+    },
+    // 4. Zapasowy (Karing)
+    {
+        name: 'Karing_Tech', 
+        url: 'lavalink.karing.tech:443', 
+        auth: 'youshallnotpass', 
         secure: true 
     }
 ];
@@ -60,7 +82,6 @@ const client = new Client({
     ],
 });
 
-// WAŻNE: Dodano savePreviousSongs: true, żeby działała historia
 const kazagumo = new Kazagumo({
     defaultSearchEngine: "youtube", 
     send: (guildId, payload) => {
@@ -70,7 +91,7 @@ const kazagumo = new Kazagumo({
 }, new Connectors.DiscordJS(client), NODES, {
     extends: {
         player: {
-            savePreviousSongs: true // Kluczowe dla historii
+            savePreviousSongs: true 
         }
     }
 });
@@ -98,7 +119,6 @@ kazagumo.on("playerStart", async (player, track) => {
         .setThumbnail(track.thumbnail || null)
         .setColor('Green');
 
-    // Info o pętli na panelu
     let loopStatus = 'OFF';
     if (player.loop === 'queue') loopStatus = 'Kolejka';
     if (player.loop === 'track') loopStatus = 'Utwór';
@@ -113,12 +133,13 @@ kazagumo.on("playerStart", async (player, track) => {
         new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
     );
 
-    // Jeśli pętla jest włączona, dodajemy info w stopce
-    if (player.loop !== 'none') {
-        embed.setFooter({ text: `🔁 Pętla: ${loopStatus}` });
-    }
+    // Info o nodzie i stanie
+    let footerText = `🔊 Vol: ${player.volume}% | 🔁 Pętla: ${loopStatus}`;
+    const currentNode = kazagumo.shoukaku.getNode();
+    footerText += ` | 📡 Node: ${currentNode ? currentNode.name : 'Szukam...'}`;
+    
+    embed.setFooter({ text: footerText });
 
-    // INTELIGENTNA OBSŁUGA WIADOMOŚCI
     let messageUpdated = false;
     const lastMsgId = lastPanelMessage.get(player.guildId);
 
@@ -178,8 +199,13 @@ kazagumo.on("playerEmpty", async (player) => {
     emptyTimers.set(player.guildId, timer);
 });
 
-kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest gotowy!`));
-kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} błąd:`, error));
+// LOGI LAVALINK
+kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest GOTOWY!`));
+kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} BŁĄD:`, error));
+kazagumo.shoukaku.on('close', (name, code, reason) => console.warn(`⚠️ Lavalink Node ${name} ROZŁĄCZONY: ${reason}`));
+kazagumo.shoukaku.on('disconnect', (name, players, moved) => {
+    if (moved) console.log(`ℹ️ Node ${name} rozłączony, gracze przeniesieni.`);
+});
 
 // ==========================================
 // FUNKCJE POMOCNICZE
@@ -251,18 +277,12 @@ async function handleMassDm(source, role, contentToSend) {
     else await source.channel.send(finalMsg);
 }
 
-// Funkcja generująca tekst kolejki (używana w przycisku i komendzie)
 function generateQueueString(player) {
     if (!player) return 'Nic nie gra.';
 
-    // Pobieramy historię (ostatnie 5 utworów)
     const prev = player.queue.previous || [];
     const historyList = prev.slice(-5).map((t, i) => `🔙 ${i + 1}. ~~${t.title}~~`).join('\n');
-
-    // Obecny utwór
     const current = `💿 **${player.queue.current?.title || 'Nieznany'}**`;
-
-    // Następne utwory (następne 10)
     const nextList = player.queue.slice(0, 10).map((t, i) => `🔜 ${i + 1}. ${t.title}`).join('\n');
 
     let finalString = '';
@@ -275,7 +295,6 @@ function generateQueueString(player) {
         finalString += `**Następne w kolejce:**\n(Koniec kolejki)`;
     }
 
-    // Dodajemy info o liczbie piosenek
     if (player.queue.length > 10) finalString += `\n\n...i ${player.queue.length - 10} więcej.`;
 
     return finalString;
@@ -295,7 +314,6 @@ client.once(Events.ClientReady, async () => {
         new SlashCommandBuilder().setName('stop').setDescription('Zatrzymuje muzykę'),
         new SlashCommandBuilder().setName('skip').setDescription('Pomija utwór'),
         new SlashCommandBuilder().setName('queue').setDescription('Pokazuje kolejkę'),
-        // NOWOŚĆ: Komenda Pętla
         new SlashCommandBuilder()
             .setName('pętla')
             .setDescription('Ustawia tryb pętli')
@@ -309,6 +327,16 @@ client.once(Events.ClientReady, async () => {
                         { name: '🔁 Kolejka (wszystko)', value: 'queue' },
                         { name: '🔀 Losowa (Shuffle + Pętla)', value: 'random' }
                     )
+            ),
+        new SlashCommandBuilder()
+            .setName('volume')
+            .setDescription('Ustawia głośność odtwarzania (0-200%)')
+            .addIntegerOption(option =>
+                option.setName('poziom')
+                    .setDescription('Procent głośności (np. 50, 100)')
+                    .setRequired(true)
+                    .setMinValue(0)
+                    .setMaxValue(200)
             ),
     ];
 
@@ -374,7 +402,6 @@ client.on(Events.InteractionCreate, async interaction => {
             }
 
             if (interaction.customId === 'music_queue') {
-                 // Używamy nowej funkcji z historią
                  const queueText = generateQueueString(player);
                  return interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
             }
@@ -383,7 +410,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (interaction.isChatInputCommand()) {
 
-        // /play
         if (interaction.commandName === 'play') {
             const { channel } = interaction.member.voice;
             if (!channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
@@ -397,12 +423,12 @@ client.on(Events.InteractionCreate, async interaction => {
                     emptyTimers.delete(interaction.guildId);
                 }
 
+                // Kazagumo sam wybierze najlepszy Node
                 const player = await kazagumo.createPlayer({
                     guildId: interaction.guildId,
                     textId: interaction.channelId,
                     voiceId: channel.id,
                     volume: 100,
-                    // Ważne: to musi tu być, żeby działało przy tworzeniu
                     savePreviousSongs: true 
                 });
 
@@ -425,7 +451,6 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
-        // /stop
         if (interaction.commandName === 'stop') {
             const player = kazagumo.players.get(interaction.guildId);
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -433,7 +458,6 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.reply('⏹️ Zatrzymano i rozłączono.');
         }
 
-        // /skip
         if (interaction.commandName === 'skip') {
             const player = kazagumo.players.get(interaction.guildId);
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -441,14 +465,12 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.reply('⏭️ Pominięto.');
         }
 
-        // /queue (z historią)
         if (interaction.commandName === 'queue') {
             const player = kazagumo.players.get(interaction.guildId);
             const queueText = generateQueueString(player);
             await interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
         }
 
-        // NOWOŚĆ: /pętla
         if (interaction.commandName === 'pętla') {
             const player = kazagumo.players.get(interaction.guildId);
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -471,13 +493,24 @@ client.on(Events.InteractionCreate, async interaction => {
             }
 
             if (mode === 'random') {
-                player.setLoop('queue'); // Najpierw zapętlamy kolejkę
-                player.queue.shuffle();  // Potem ją mieszamy
+                player.setLoop('queue'); 
+                player.queue.shuffle();  
                 return interaction.reply({ content: '🔀 Pętla losowa włączona (kolejka wymieszana i zapętlona).', flags: MessageFlags.Ephemeral });
             }
         }
 
-        // /fembed i /pw
+        if (interaction.commandName === 'volume') {
+            const player = kazagumo.players.get(interaction.guildId);
+            if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+            
+            if (!interaction.member.voice.channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
+
+            const volume = interaction.options.getInteger('poziom');
+            player.setVolume(volume);
+            
+            return interaction.reply({ content: `🔊 Głośność ustawiona na **${volume}%**.`, flags: MessageFlags.Ephemeral });
+        }
+
         if (interaction.commandName === 'fembed') {
             if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
             const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
@@ -491,7 +524,6 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // --- OBSŁUGA MODALA ---
     if (interaction.isModalSubmit() && interaction.customId.startsWith('embedModal')) {
         const targetChannelId = interaction.customId.split(':')[1];
         const title = interaction.fields.getTextInputValue('embedTitle');
