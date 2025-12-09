@@ -323,6 +323,22 @@ client.once(Events.ClientReady, async () => {
                     .setMinValue(0)
                     .setMaxValue(200)
             ),
+        new SlashCommandBuilder()
+            .setName('giverole')
+            .setDescription('Nadawanie roli masowo')
+            .addSubcommand(subcommand =>
+                subcommand
+                    .setName('wszyscy')
+                    .setDescription('Nadaj rolę wszystkim użytkownikom')
+                    .addRoleOption(option => option.setName('rola').setDescription('Rola do nadania').setRequired(true))
+            )
+            .addSubcommand(subcommand =>
+                subcommand
+                    .setName('ranga')
+                    .setDescription('Nadaj rolę użytkownikom z konkretną rangą')
+                    .addRoleOption(option => option.setName('cel').setDescription('Ranga użytkowników, którzy mają dostać nową rolę').setRequired(true))
+                    .addRoleOption(option => option.setName('rola').setDescription('Rola do nadania').setRequired(true))
+            ),
     ];
 
     const guild = client.guilds.cache.get(GUILD_ID);
@@ -507,6 +523,57 @@ client.on(Events.InteractionCreate, async interaction => {
             const role = interaction.options.getRole('ranga');
             const messageContent = interaction.options.getString('wiadomosc');
             await handleMassDm(interaction, role, messageContent);
+        }
+
+        if (interaction.commandName === 'giverole') {
+            if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
+        
+            const roleToGive = interaction.options.getRole('rola');
+            const subcommand = interaction.options.getSubcommand();
+            
+            // Sprawdzenie hierarchii
+            if (roleToGive.position >= interaction.guild.members.me.roles.highest.position) {
+                return interaction.reply({ content: '❌ Nie mogę nadać tej roli (jest wyższa lub równa mojej najwyższej roli).', flags: MessageFlags.Ephemeral });
+            }
+        
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        
+            let targetMembers;
+            if (subcommand === 'wszyscy') {
+                targetMembers = await interaction.guild.members.fetch();
+                targetMembers = targetMembers.filter(m => !m.user.bot);
+            } else if (subcommand === 'ranga') {
+                const targetRole = interaction.options.getRole('cel');
+                await interaction.guild.members.fetch(); 
+                targetMembers = targetRole.members.filter(m => !m.user.bot);
+            }
+        
+            if (!targetMembers || targetMembers.size === 0) {
+                return interaction.editReply('❌ Nie znaleziono użytkowników do nadania roli.');
+            }
+        
+            let successCount = 0;
+            let errorCount = 0;
+            const total = targetMembers.size;
+        
+            await interaction.editReply(`🔄 Rozpoczynam nadawanie roli **${roleToGive.name}** dla **${total}** użytkowników...`);
+        
+            for (const [id, member] of targetMembers) {
+                // Pomiń jeśli już ma
+                if (member.roles.cache.has(roleToGive.id)) {
+                    continue; 
+                }
+        
+                try {
+                    await member.roles.add(roleToGive);
+                    successCount++;
+                    await sleep(500); // Małe opóźnienie dla bezpieczeństwa
+                } catch (e) {
+                    errorCount++;
+                }
+            }
+        
+            await interaction.editReply(`✅ Zakończono!\nNadano: **${successCount}**\nBłędy: **${errorCount}**\nJuż mieli: **${total - successCount - errorCount}**`);
         }
     }
 
