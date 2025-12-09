@@ -17,10 +17,11 @@ const {
     ActionRowBuilder, 
     ButtonBuilder, 
     ButtonStyle,
-    PermissionsBitField 
+    PermissionsBitField,
+    Events,           // Nowe: do obsługi ClientReady
+    MessageFlags      // Nowe: do obsługi Ephemeral
 } = require('discord.js');
 const { DisTube } = require('distube');
-// Importujemy ffmpeg ręcznie - to jest KLUCZOWE na Renderze
 const ffmpegPath = require('ffmpeg-static');
 
 const client = new Client({
@@ -42,21 +43,15 @@ const ROLE_PW_ID = '1447757045947174972';
 const ROLE_EMBED_ID = '1447764029882896487';
 
 // ==========================================
-// KONFIGURACJA DISTUBE (WERSJA 5 - CZYSTA)
+// KONFIGURACJA DISTUBE (v5)
 // ==========================================
 const distube = new DisTube(client, {
-    // W wersji 5 usunięto leaveOnStop, leaveOnFinish i ytdlOptions z tego obiektu.
-    // Jedynie co musimy tu zostawić dla Rendera, to ścieżka do ffmpeg.
-    
     emitNewSongOnly: true,
     ffmpeg: {
         path: ffmpegPath, 
     },
 });
 
-// ==========================================
-// EVENTY MUZYCZNE
-// ==========================================
 distube
     .on('playSong', (queue, song) => {
         const embed = new EmbedBuilder()
@@ -104,7 +99,7 @@ async function handleMassDm(source, role, contentToSend) {
     const member = source.member;
     if (!member.roles.cache.has(ROLE_PW_ID) && !member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         const msg = '⛔ Nie masz uprawnień do tej komendy.';
-        if (source.reply) return source.reply({ content: msg, ephemeral: true });
+        if (source.reply) return source.reply({ content: msg, flags: MessageFlags.Ephemeral });
         return;
     }
 
@@ -149,7 +144,8 @@ async function handleMassDm(source, role, contentToSend) {
 // START BOTA I REJESTRACJA KOMEND
 // ==========================================
 
-client.once('ready', async () => {
+// POPRAWKA: Używamy Events.ClientReady zamiast 'ready'
+client.once(Events.ClientReady, async () => {
 	console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
 
     const commands = [
@@ -176,15 +172,17 @@ client.once('ready', async () => {
 // ==========================================
 // OBSŁUGA SLASH COMMANDS
 // ==========================================
-client.on('interactionCreate', async interaction => {
+client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
+    // --- /play ---
     if (interaction.commandName === 'play') {
         const voiceChannel = interaction.member.voice.channel;
-        if (!voiceChannel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', ephemeral: true });
+        if (!voiceChannel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
 
         const query = interaction.options.getString('utwor');
-        await interaction.reply({ content: `🔍 Szukam: **${query}**...`, ephemeral: true });
+        // POPRAWKA: flags: MessageFlags.Ephemeral zamiast ephemeral: true
+        await interaction.reply({ content: `🔍 Szukam: **${query}**...`, flags: MessageFlags.Ephemeral });
 
         try {
             await distube.play(voiceChannel, query, {
@@ -193,37 +191,42 @@ client.on('interactionCreate', async interaction => {
             });
         } catch (e) {
             console.error('Błąd play:', e);
-            await interaction.followUp({ content: '❌ Błąd odtwarzania.', ephemeral: true });
+            await interaction.followUp({ content: '❌ Błąd odtwarzania.', flags: MessageFlags.Ephemeral });
         }
     }
 
+    // --- /stop ---
     if (interaction.commandName === 'stop') {
         const queue = distube.getQueue(interaction.guildId);
-        if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', ephemeral: true });
+        if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
         queue.stop();
         await interaction.reply('⏹️ Zatrzymano.');
     }
 
+    // --- /skip ---
     if (interaction.commandName === 'skip') {
         const queue = distube.getQueue(interaction.guildId);
-        if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', ephemeral: true });
+        if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
         try { await queue.skip(); await interaction.reply('⏭️ Pominięto.'); } 
-        catch { await interaction.reply({ content: '⚠️ To ostatni utwór.', ephemeral: true }); }
+        catch { await interaction.reply({ content: '⚠️ To ostatni utwór.', flags: MessageFlags.Ephemeral }); }
     }
 
+    // --- /queue ---
     if (interaction.commandName === 'queue') {
         const queue = distube.getQueue(interaction.guildId);
-        if (!queue) return interaction.reply({ content: 'Pusto.', ephemeral: true });
+        if (!queue) return interaction.reply({ content: 'Pusto.', flags: MessageFlags.Ephemeral });
         const q = queue.songs.slice(0, 10).map((s, i) => `${i === 0 ? 'Gra:' : i + '.'} ${s.name}`).join('\n');
         await interaction.reply(`**Kolejka:**\n${q}`);
     }
 
+    // --- /fembed ---
     if (interaction.commandName === 'fembed') {
-        if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', ephemeral: true });
+        if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
         const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
         await interaction.showModal(createEmbedModal(targetChannel.id));
     }
 
+    // --- /pw ---
     if (interaction.commandName === 'pw') {
         const role = interaction.options.getRole('ranga');
         const messageContent = interaction.options.getString('wiadomosc');
@@ -234,9 +237,9 @@ client.on('interactionCreate', async interaction => {
 // ==========================================
 // OBSŁUGA BUTTON & MODAL
 // ==========================================
-client.on('interactionCreate', async interaction => {
+client.on(Events.InteractionCreate, async interaction => {
     if (interaction.isButton() && interaction.customId === 'openEmbedModal') {
-        if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', ephemeral: true });
+        if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
         await interaction.showModal(createEmbedModal(interaction.channelId));
     }
 
@@ -256,15 +259,15 @@ client.on('interactionCreate', async interaction => {
         try {
             const channel = await client.channels.fetch(targetChannelId);
             await channel.send({ embeds: [embed] });
-            await interaction.reply({ content: `✅ Wysłano na ${channel}.`, ephemeral: true });
-        } catch (err) { await interaction.reply({ content: '❌ Błąd.', ephemeral: true }); }
+            await interaction.reply({ content: `✅ Wysłano na ${channel}.`, flags: MessageFlags.Ephemeral });
+        } catch (err) { await interaction.reply({ content: '❌ Błąd.', flags: MessageFlags.Ephemeral }); }
     }
 });
 
 // ==========================================
 // KOMENDY TEKSTOWE
 // ==========================================
-client.on('messageCreate', async message => {
+client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
     if (message.content.startsWith('!play')) {
