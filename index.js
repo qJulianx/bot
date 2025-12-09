@@ -19,7 +19,7 @@ const {
     ButtonStyle,
     PermissionsBitField 
 } = require('discord.js');
-const { DisTube } = require('distube'); // Biblioteka muzyczna
+const { DisTube } = require('distube');
 
 const client = new Client({
     intents: [
@@ -27,7 +27,7 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildVoiceStates, // Wygane do muzyki
+        GatewayIntentBits.GuildVoiceStates,
     ],
 });
 
@@ -35,25 +35,18 @@ const client = new Client({
 // KONFIGURACJA (UZUPEŁNIJ TO!)
 // ==========================================
 
-// ID Twojego serwera (dla szybkiego ładowania komend /)
 const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
-
-// ID Roli, która może używać !pw
 const ROLE_PW_ID = '1447757045947174972';
-
-// ID Roli, która może używać !fembed
 const ROLE_EMBED_ID = '1447764029882896487';
 
 // ==========================================
-// KONFIGURACJA DISTUBE (MUZYKA)
+// KONFIGURACJA DISTUBE
 // ==========================================
 const distube = new DisTube(client, {
     emitNewSongOnly: true,
-    leaveOnFinish: true,
     leaveOnStop: true,
 });
 
-// Eventy DisTube (co bot pisze na czacie)
 distube
     .on('playSong', (queue, song) => {
         const embed = new EmbedBuilder()
@@ -75,13 +68,11 @@ distube
     });
 
 // ==========================================
-// FUNKCJE POMOCNICZE (PW & EMBED)
+// FUNKCJE POMOCNICZE
 // ==========================================
 
-// Funkcja Sleep (anty-spam)
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Funkcja tworząca formularz Embeda
 function createEmbedModal(targetChannelId) {
     const modal = new ModalBuilder()
         .setCustomId(`embedModal:${targetChannelId}`)
@@ -90,7 +81,7 @@ function createEmbedModal(targetChannelId) {
     const inputs = [
         new TextInputBuilder().setCustomId('embedTitle').setLabel("Tytuł").setStyle(TextInputStyle.Short).setRequired(false),
         new TextInputBuilder().setCustomId('embedDesc').setLabel("Opis").setStyle(TextInputStyle.Paragraph).setRequired(true),
-        new TextInputBuilder().setCustomId('embedColor').setLabel("Kolor (np. Red, #ff0000)").setStyle(TextInputStyle.Short).setPlaceholder('Blue').setRequired(false),
+        new TextInputBuilder().setCustomId('embedColor').setLabel("Kolor").setStyle(TextInputStyle.Short).setPlaceholder('Blue').setRequired(false),
         new TextInputBuilder().setCustomId('embedImage').setLabel("Obrazek (URL)").setStyle(TextInputStyle.Short).setRequired(false),
         new TextInputBuilder().setCustomId('embedFooter').setLabel("Stopka").setStyle(TextInputStyle.Short).setRequired(false)
     ];
@@ -99,11 +90,8 @@ function createEmbedModal(targetChannelId) {
     return modal;
 }
 
-// Funkcja obsługująca masowe PW (!pw i /pw)
 async function handleMassDm(source, role, contentToSend) {
     const member = source.member;
-    
-    // Sprawdzenie uprawnień
     if (!member.roles.cache.has(ROLE_PW_ID) && !member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         const msg = '⛔ Nie masz uprawnień do tej komendy.';
         if (source.reply) return source.reply({ content: msg, ephemeral: true });
@@ -139,9 +127,7 @@ async function handleMassDm(source, role, contentToSend) {
             await targetMember.send(`**Wiadomość od administracji:**\n${contentToSend}`);
             sentCount++;
             if (useSleep) await sleep(2000); 
-        } catch (error) {
-            errorCount++;
-        }
+        } catch (error) { errorCount++; }
     }
 
     const finalMsg = `✅ Zakończono!\nWysłano: ${sentCount}\nZablokowane PW: ${errorCount}`;
@@ -150,24 +136,36 @@ async function handleMassDm(source, role, contentToSend) {
 }
 
 // ==========================================
-// START BOTA
+// START BOTA I REJESTRACJA KOMEND
 // ==========================================
 
 client.once('ready', async () => {
 	console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
 
-    // Rejestracja komend Slash
+    // Lista komend Slash
     const commands = [
+        // PW
         new SlashCommandBuilder()
             .setName('pw')
             .setDescription('Masowa wiadomość DM')
             .addRoleOption(o => o.setName('ranga').setDescription('Ranga').setRequired(true))
             .addStringOption(o => o.setName('wiadomosc').setDescription('Treść').setRequired(true)),
         
+        // Fembed
         new SlashCommandBuilder()
             .setName('fembed')
             .setDescription('Kreator Embedów')
             .addChannelOption(o => o.setName('kanal').setDescription('Gdzie wysłać?')),
+
+        // MUZYKA
+        new SlashCommandBuilder()
+            .setName('play')
+            .setDescription('Odtwarza muzykę')
+            .addStringOption(o => o.setName('utwor').setDescription('Link lub nazwa piosenki').setRequired(true)),
+        
+        new SlashCommandBuilder().setName('stop').setDescription('Zatrzymuje muzykę i wyrzuca bota'),
+        new SlashCommandBuilder().setName('skip').setDescription('Pomija obecny utwór'),
+        new SlashCommandBuilder().setName('queue').setDescription('Pokazuje kolejkę utworów'),
     ];
 
     const guild = client.guilds.cache.get(GUILD_ID);
@@ -177,43 +175,98 @@ client.once('ready', async () => {
             console.log(`✅ Komendy zarejestrowane dla serwera: ${guild.name}`);
         } else {
             await client.application.commands.set(commands);
-            console.log('⚠️ Nie znaleziono serwera po ID, zarejestrowano globalnie (może potrwać 1h).');
+            console.log('⚠️ Rejestracja globalna (może potrwać 1h).');
         }
     } catch (e) { console.error('Błąd rejestracji:', e); }
 });
 
 // ==========================================
-// OBSŁUGA INTERAKCJI (Slash, Button, Modal)
+// OBSŁUGA SLASH COMMANDS
 // ==========================================
 client.on('interactionCreate', async interaction => {
-    
-    // --- KOMENDY SLASH (/pw, /fembed) ---
-    if (interaction.isChatInputCommand()) {
-        
-        if (interaction.commandName === 'fembed') {
-            if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) {
-                return interaction.reply({ content: '⛔ Brak uprawnień.', ephemeral: true });
-            }
-            const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
-            await interaction.showModal(createEmbedModal(targetChannel.id));
+    if (!interaction.isChatInputCommand()) return; // Ignorujemy jeśli to nie komenda (np. przycisk)
+
+    // --- /play ---
+    if (interaction.commandName === 'play') {
+        const voiceChannel = interaction.member.voice.channel;
+        if (!voiceChannel) {
+            return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', ephemeral: true });
         }
 
-        if (interaction.commandName === 'pw') {
-            const role = interaction.options.getRole('ranga');
-            const messageContent = interaction.options.getString('wiadomosc');
-            await handleMassDm(interaction, role, messageContent);
+        const query = interaction.options.getString('utwor');
+        await interaction.reply({ content: `🔍 Szukam: **${query}**...`, ephemeral: true });
+
+        try {
+            await distube.play(voiceChannel, query, {
+                member: interaction.member,
+                textChannel: interaction.channel,
+            });
+            // Nie musimy tu więcej odpisywać, event 'playSong' lub 'addSong' wyśle embed na kanał
+        } catch (e) {
+            console.error(e);
+            await interaction.followUp({ content: '❌ Błąd podczas odtwarzania.', ephemeral: true });
         }
     }
 
-    // --- PRZYCISK (!fembed -> Otwórz) ---
-    if (interaction.isButton() && interaction.customId === 'openEmbedModal') {
+    // --- /stop ---
+    if (interaction.commandName === 'stop') {
+        const queue = distube.getQueue(interaction.guildId);
+        if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', ephemeral: true });
+        
+        queue.stop();
+        await interaction.reply('⏹️ Zatrzymano odtwarzanie.');
+    }
+
+    // --- /skip ---
+    if (interaction.commandName === 'skip') {
+        const queue = distube.getQueue(interaction.guildId);
+        if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', ephemeral: true });
+
+        try {
+            await queue.skip();
+            await interaction.reply('⏭️ Pominięto utwór.');
+        } catch (e) {
+            await interaction.reply({ content: '⚠️ To ostatni utwór w kolejce (użyj /stop).', ephemeral: true });
+        }
+    }
+
+    // --- /queue ---
+    if (interaction.commandName === 'queue') {
+        const queue = distube.getQueue(interaction.guildId);
+        if (!queue) return interaction.reply({ content: 'Kolejka jest pusta.', ephemeral: true });
+
+        const q = queue.songs.slice(0, 10).map((s, i) => `${i === 0 ? 'Gra:' : i + '.'} ${s.name}`).join('\n');
+        await interaction.reply(`**Kolejka (Top 10):**\n${q}`);
+    }
+
+    // --- /fembed ---
+    if (interaction.commandName === 'fembed') {
         if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) {
             return interaction.reply({ content: '⛔ Brak uprawnień.', ephemeral: true });
         }
+        const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
+        await interaction.showModal(createEmbedModal(targetChannel.id));
+    }
+
+    // --- /pw ---
+    if (interaction.commandName === 'pw') {
+        const role = interaction.options.getRole('ranga');
+        const messageContent = interaction.options.getString('wiadomosc');
+        await handleMassDm(interaction, role, messageContent);
+    }
+});
+
+// ==========================================
+// OBSŁUGA BUTTON & MODAL
+// ==========================================
+client.on('interactionCreate', async interaction => {
+    // Button !fembed
+    if (interaction.isButton() && interaction.customId === 'openEmbedModal') {
+        if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', ephemeral: true });
         await interaction.showModal(createEmbedModal(interaction.channelId));
     }
 
-    // --- FORMULARZ (Wysłanie Embeda) ---
+    // Modal Submit
     if (interaction.isModalSubmit() && interaction.customId.startsWith('embedModal')) {
         const targetChannelId = interaction.customId.split(':')[1];
         
@@ -233,79 +286,45 @@ client.on('interactionCreate', async interaction => {
             await channel.send({ embeds: [embed] });
             await interaction.reply({ content: `✅ Wysłano na ${channel}.`, ephemeral: true });
         } catch (err) {
-            await interaction.reply({ content: '❌ Błąd wysyłania (sprawdź kolor/obrazek).', ephemeral: true });
+            await interaction.reply({ content: '❌ Błąd.', ephemeral: true });
         }
     }
 });
 
 // ==========================================
-// OBSŁUGA WIADOMOŚCI (!pw, !fembed, !play)
+// OBSŁUGA STARYCH KOMEND TEKSTOWYCH (!play)
 // ==========================================
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // --- !fembed ---
-    if (message.content === '!fembed') {
-        if (!message.member.roles.cache.has(ROLE_EMBED_ID)) return message.reply('⛔ Brak uprawnień.');
-        
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('openEmbedModal').setLabel('🎨 Stwórz Embed').setStyle(ButtonStyle.Primary)
-        );
-        await message.reply({ content: 'Otwórz kreator:', components: [row] });
-    }
-
-    // --- !pw ---
-    if (message.content.startsWith('!pw')) {
-        const args = message.content.split(' ');
-        if (args.length < 3) return message.reply('Użycie: `!pw @Ranga Wiadomość`');
-        
-        const role = message.mentions.roles.first() || message.guild.roles.cache.get(args[1]);
-        if (!role) return message.reply('Nie znaleziono rangi.');
-        
-        const content = args.slice(2).join(' ');
-        await handleMassDm(message, role, content);
-    }
-
-    // --- MUZYKA (!play, !stop, !skip, !queue) ---
+    // !play (pozostawione dla wygody)
     if (message.content.startsWith('!play')) {
         const voiceChannel = message.member.voice.channel;
-        if (!voiceChannel) return message.reply('❌ Wejdź najpierw na kanał głosowy!');
-
+        if (!voiceChannel) return message.reply('❌ Wejdź na kanał głosowy!');
         const query = message.content.split(' ').slice(1).join(' ');
-        if (!query) return message.reply('❌ Podaj tytuł lub link.');
-
+        if (!query) return message.reply('❌ Podaj tytuł.');
         try {
-            await distube.play(voiceChannel, query, {
-                member: message.member,
-                textChannel: message.channel,
-                message: message
-            });
+            await distube.play(voiceChannel, query, { member: message.member, textChannel: message.channel, message: message });
             message.react('🎵');
         } catch (e) { console.error(e); }
     }
+    // Pozostałe skróty tekstowe
+    if (message.content === '!stop') { distube.getQueue(message)?.stop(); message.reply('⏹️'); }
+    if (message.content === '!skip') { try { await distube.getQueue(message)?.skip(); message.reply('⏭️'); } catch {} }
 
-    if (message.content === '!stop') {
-        const queue = distube.getQueue(message);
-        if (queue) { queue.stop(); message.reply('⏹️ Zatrzymano.'); }
-        else message.reply('Nic nie gra.');
+    // !fembed i !pw (tekstowe)
+    if (message.content === '!fembed') {
+        if (!message.member.roles.cache.has(ROLE_EMBED_ID)) return message.reply('⛔ Brak uprawnień.');
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('openEmbedModal').setLabel('Stwórz').setStyle(ButtonStyle.Primary));
+        await message.reply({ content: 'Otwórz kreator:', components: [row] });
     }
-
-    if (message.content === '!skip') {
-        const queue = distube.getQueue(message);
-        if (queue) {
-            try { await queue.skip(); message.reply('⏭️ Pominięto.'); } 
-            catch { message.reply('To ostatni utwór.'); }
-        } else message.reply('Nic nie gra.');
+    if (message.content.startsWith('!pw')) {
+        const args = message.content.split(' ');
+        if (args.length < 3) return message.reply('Użycie: `!pw @Ranga Wiadomość`');
+        const role = message.mentions.roles.first() || message.guild.roles.cache.get(args[1]);
+        if (!role) return message.reply('Brak rangi.');
+        await handleMassDm(message, role, args.slice(2).join(' '));
     }
-
-    if (message.content === '!queue') {
-        const queue = distube.getQueue(message);
-        if (!queue) return message.reply('Kolejka pusta.');
-        const q = queue.songs.slice(0, 10).map((s, i) => `${i === 0 ? 'Gra:' : i + '.'} ${s.name}`).join('\n');
-        message.reply(`**Kolejka:**\n${q}`);
-    }
-
-    if (message.content === '!ping') message.reply('Pong!');
 });
 
 const token = process.env.TOKEN;
