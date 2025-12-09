@@ -12,6 +12,8 @@
   "license": "ISC",
   "dependencies": {
     "@discordjs/voice": "^0.17.0",
+    "@distube/soundcloud": "^2.0.4",
+    "@distube/spotify": "^2.0.2",
     "@distube/yt-dlp": "^2.0.1",
     "@snazzah/davey": "^0.1.8",
     "discord.js": "^14.25.1",

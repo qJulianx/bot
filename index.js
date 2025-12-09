@@ -22,7 +22,11 @@ const {
     MessageFlags 
 } = require('discord.js');
 const { DisTube } = require('distube');
-const { YtDlpPlugin } = require('@distube/yt-dlp'); // NOWOŚĆ: Plugin do YouTube
+
+// --- IMPORTY PLUGINÓW (TRYB SMART) ---
+const { YtDlpPlugin } = require('@distube/yt-dlp');
+const { SoundCloudPlugin } = require('@distube/soundcloud');
+const { SpotifyPlugin } = require('@distube/spotify');
 const ffmpegPath = require('ffmpeg-static');
 
 const client = new Client({
@@ -44,7 +48,7 @@ const ROLE_PW_ID = '1447757045947174972';
 const ROLE_EMBED_ID = '1447764029882896487';
 
 // ==========================================
-// KONFIGURACJA DISTUBE (Z PLUGINEM YT-DLP)
+// KONFIGURACJA DISTUBE (FULL SMART MODE)
 // ==========================================
 const distube = new DisTube(client, {
     emitNewSongOnly: true,
@@ -52,18 +56,35 @@ const distube = new DisTube(client, {
         path: ffmpegPath, 
     },
     plugins: [
-        new YtDlpPlugin() // To naprawia błędy "NO_RESULT" na hostingu
+        // 1. Spotify - obsługuje linki do playlist i piosenek Spotify
+        new SpotifyPlugin({
+            emitEventsAfterFetching: true
+        }),
+        // 2. SoundCloud - główne źródło wyszukiwania (omija blokady YT)
+        new SoundCloudPlugin(),
+        // 3. Yt-Dlp - "Odkurzacz", obsługuje YouTube, TikTok, Facebook i 700+ innych stron
+        new YtDlpPlugin({ update: true }) 
     ]
 });
 
+// ==========================================
+// EVENTY MUZYCZNE
+// ==========================================
 distube
     .on('playSong', (queue, song) => {
+        // Logika ładnego wyświetlania źródła
+        let sourceIcon = '🎵';
+        if (song.source === 'youtube') sourceIcon = 'YouTube ▶️';
+        if (song.source === 'soundcloud') sourceIcon = 'SoundCloud ☁️';
+        if (song.source === 'spotify') sourceIcon = 'Spotify 💚';
+
         const embed = new EmbedBuilder()
-            .setTitle('🎶 Gramy:')
+            .setTitle(`${sourceIcon} Gramy:`)
             .setDescription(`[${song.name}](${song.url})`)
             .addFields(
                 { name: 'Czas', value: song.formattedDuration, inline: true },
-                { name: 'Dodał', value: song.user.toString(), inline: true }
+                { name: 'Dodał', value: song.user.toString(), inline: true },
+                { name: 'Źródło', value: song.source || 'Inne', inline: true }
             )
             .setThumbnail(song.thumbnail)
             .setColor('Green');
@@ -73,7 +94,13 @@ distube
     .on('addList', (queue, playlist) => queue.textChannel.send(`✅ Dodano playlistę: **${playlist.name}** (${playlist.songs.length} utworów)`))
     .on('error', (channel, e) => {
         console.error('BŁĄD DISTUBE:', e);
-        if (channel) channel.send(`❌ Błąd odtwarzania: ${e.message.slice(0, 100)}`);
+        
+        // Specjalna obsługa błędów dla użytkownika
+        let errorMsg = e.message.slice(0, 100);
+        if (e.message.includes("Sign in")) errorMsg = "Blokada YouTube (Hosting). Użyj wyszukiwania po tytule lub linku SoundCloud.";
+        if (e.message.includes("No result")) errorMsg = "Nie znaleziono utworu. Spróbuj wpisać dokładniejszy tytuł.";
+
+        if (channel) channel.send(`❌ Błąd: ${errorMsg}`);
     });
 
 // ==========================================
@@ -103,7 +130,6 @@ async function handleMassDm(source, role, contentToSend) {
     const member = source.member;
     if (!member.roles.cache.has(ROLE_PW_ID) && !member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         const msg = '⛔ Nie masz uprawnień do tej komendy.';
-        // Używamy flagi Ephemeral dla bezpieczeństwa
         if (source.reply) return source.reply({ content: msg, flags: MessageFlags.Ephemeral });
         return;
     }
@@ -143,7 +169,6 @@ async function handleMassDm(source, role, contentToSend) {
     }
 
     const finalMsg = `✅ Zakończono!\nWysłano: ${sentCount}\nZablokowane PW: ${errorCount}`;
-    // Używamy editReply lub followUp, bo wcześniej zrobiliśmy deferReply
     if (source.isCommand && source.isCommand()) await source.editReply({ content: finalMsg });
     else await source.channel.send(finalMsg);
 }
@@ -158,7 +183,7 @@ client.once(Events.ClientReady, async () => {
     const commands = [
         new SlashCommandBuilder().setName('pw').setDescription('Masowa wiadomość DM').addRoleOption(o => o.setName('ranga').setDescription('Ranga').setRequired(true)).addStringOption(o => o.setName('wiadomosc').setDescription('Treść').setRequired(true)),
         new SlashCommandBuilder().setName('fembed').setDescription('Kreator Embedów').addChannelOption(o => o.setName('kanal').setDescription('Gdzie wysłać?')),
-        new SlashCommandBuilder().setName('play').setDescription('Odtwarza muzykę').addStringOption(o => o.setName('utwor').setDescription('Link lub nazwa piosenki').setRequired(true)),
+        new SlashCommandBuilder().setName('play').setDescription('Odtwarza muzykę z wielu źródeł').addStringOption(o => o.setName('utwor').setDescription('Link (Spotify/SC/TT) lub Tytuł').setRequired(true)),
         new SlashCommandBuilder().setName('stop').setDescription('Zatrzymuje muzykę'),
         new SlashCommandBuilder().setName('skip').setDescription('Pomija utwór'),
         new SlashCommandBuilder().setName('queue').setDescription('Pokazuje kolejkę'),
@@ -182,31 +207,35 @@ client.once(Events.ClientReady, async () => {
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // --- /play ---
+    // --- /play (SMART MODE) ---
     if (interaction.commandName === 'play') {
         const voiceChannel = interaction.member.voice.channel;
         if (!voiceChannel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
 
-        const query = interaction.options.getString('utwor');
+        let query = interaction.options.getString('utwor');
         
-        // NAJWAŻNIEJSZA ZMIANA: deferReply
-        // Mówimy Discordowi: "Daj mi więcej niż 3 sekundy"
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        await interaction.editReply({ content: `🔍 Szukam: **${query}**...` });
+        await interaction.editReply({ content: `🔍 Analizuję źródło: **${query}**...` });
+
+        // LOGIKA SMART:
+        // 1. Jeśli to link (http) -> Bot sam wybierze plugin (Spotify, SoundCloud, YT-DLP, TikTok itp.)
+        // 2. Jeśli to tekst (np. "Diho") -> Wymuszamy SoundCloud, bo YouTube na Renderze nie działa przy wyszukiwaniu.
+        
+        if (!query.startsWith('http')) {
+            query = 'scsearch:' + query; 
+        }
 
         try {
             await distube.play(voiceChannel, query, {
                 member: interaction.member,
                 textChannel: interaction.channel,
             });
-            // Jak się uda, DisTube wyśle embed sam
         } catch (e) {
             console.error('Błąd play:', e);
-            await interaction.editReply({ content: `❌ Błąd odtwarzania: ${e.message}` });
+            await interaction.editReply({ content: `❌ Błąd odtwarzania: ${e.message.slice(0, 100)}` });
         }
     }
 
-    // --- /stop ---
     if (interaction.commandName === 'stop') {
         const queue = distube.getQueue(interaction.guildId);
         if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -214,7 +243,6 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.reply('⏹️ Zatrzymano.');
     }
 
-    // --- /skip ---
     if (interaction.commandName === 'skip') {
         const queue = distube.getQueue(interaction.guildId);
         if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -222,22 +250,19 @@ client.on(Events.InteractionCreate, async interaction => {
         catch { await interaction.reply({ content: '⚠️ To ostatni utwór.', flags: MessageFlags.Ephemeral }); }
     }
 
-    // --- /queue ---
     if (interaction.commandName === 'queue') {
         const queue = distube.getQueue(interaction.guildId);
         if (!queue) return interaction.reply({ content: 'Pusto.', flags: MessageFlags.Ephemeral });
-        const q = queue.songs.slice(0, 10).map((s, i) => `${i === 0 ? 'Gra:' : i + '.'} ${s.name}`).join('\n');
+        const q = queue.songs.slice(0, 10).map((s, i) => `${i === 0 ? 'Gra:' : i + '.'} ${s.name} (${s.source})`).join('\n');
         await interaction.reply({ content: `**Kolejka:**\n${q}`, flags: MessageFlags.Ephemeral });
     }
 
-    // --- /fembed ---
     if (interaction.commandName === 'fembed') {
         if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
         const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
         await interaction.showModal(createEmbedModal(targetChannel.id));
     }
 
-    // --- /pw ---
     if (interaction.commandName === 'pw') {
         const role = interaction.options.getRole('ranga');
         const messageContent = interaction.options.getString('wiadomosc');
@@ -276,7 +301,7 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // ==========================================
-// KOMENDY TEKSTOWE
+// KOMENDY TEKSTOWE (SMART MODE)
 // ==========================================
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
@@ -284,8 +309,14 @@ client.on(Events.MessageCreate, async message => {
     if (message.content.startsWith('!play')) {
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) return message.reply('❌ Wejdź na kanał głosowy!');
-        const query = message.content.split(' ').slice(1).join(' ');
+        let query = message.content.split(' ').slice(1).join(' ');
         if (!query) return message.reply('❌ Podaj tytuł.');
+        
+        // SMART LOGIC:
+        if (!query.startsWith('http')) {
+            query = 'scsearch:' + query;
+        }
+
         try { await distube.play(voiceChannel, query, { member: message.member, textChannel: message.channel, message: message }); message.react('🎵'); } 
         catch (e) { console.error(e); }
     }
