@@ -40,11 +40,11 @@ const ROLE_PW_ID = '1447757045947174972';
 const ROLE_EMBED_ID = '1447764029882896487';
 
 // ==========================================
-// KONFIGURACJA DISTUBE
+// KONFIGURACJA DISTUBE (NAPRAWIONA)
 // ==========================================
+// Usunięto leaveOnStop i leaveOnFinish, bo nowa wersja DisTube ich nie potrzebuje (są domyślne lub usunięte)
 const distube = new DisTube(client, {
     emitNewSongOnly: true,
-    leaveOnStop: true,
 });
 
 distube
@@ -63,8 +63,9 @@ distube
     .on('addSong', (queue, song) => queue.textChannel.send(`✅ Dodano: **${song.name}** - \`${song.formattedDuration}\``))
     .on('addList', (queue, playlist) => queue.textChannel.send(`✅ Dodano playlistę: **${playlist.name}** (${playlist.songs.length} utworów)`))
     .on('error', (channel, e) => {
-        if (channel) channel.send(`❌ Błąd muzyczny: ${e.toString().slice(0, 100)}`);
-        else console.error(e);
+        // Ignorujemy błędy przerwania połączenia, żeby nie spamować konsoli
+        console.error(e);
+        if (channel) channel.send(`❌ Błąd: ${e.message.slice(0, 100)}`);
     });
 
 // ==========================================
@@ -184,7 +185,7 @@ client.once('ready', async () => {
 // OBSŁUGA SLASH COMMANDS
 // ==========================================
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand()) return; // Ignorujemy jeśli to nie komenda (np. przycisk)
+    if (!interaction.isChatInputCommand()) return; // Ignorujemy jeśli to nie komenda
 
     // --- /play ---
     if (interaction.commandName === 'play') {
@@ -201,7 +202,6 @@ client.on('interactionCreate', async interaction => {
                 member: interaction.member,
                 textChannel: interaction.channel,
             });
-            // Nie musimy tu więcej odpisywać, event 'playSong' lub 'addSong' wyśle embed na kanał
         } catch (e) {
             console.error(e);
             await interaction.followUp({ content: '❌ Błąd podczas odtwarzania.', ephemeral: true });
@@ -297,7 +297,7 @@ client.on('interactionCreate', async interaction => {
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // !play (pozostawione dla wygody)
+    // !play
     if (message.content.startsWith('!play')) {
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) return message.reply('❌ Wejdź na kanał głosowy!');
@@ -312,12 +312,13 @@ client.on('messageCreate', async message => {
     if (message.content === '!stop') { distube.getQueue(message)?.stop(); message.reply('⏹️'); }
     if (message.content === '!skip') { try { await distube.getQueue(message)?.skip(); message.reply('⏭️'); } catch {} }
 
-    // !fembed i !pw (tekstowe)
+    // !fembed
     if (message.content === '!fembed') {
         if (!message.member.roles.cache.has(ROLE_EMBED_ID)) return message.reply('⛔ Brak uprawnień.');
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('openEmbedModal').setLabel('Stwórz').setStyle(ButtonStyle.Primary));
         await message.reply({ content: 'Otwórz kreator:', components: [row] });
     }
+    // !pw
     if (message.content.startsWith('!pw')) {
         const args = message.content.split(' ');
         if (args.length < 3) return message.reply('Użycie: `!pw @Ranga Wiadomość`');
