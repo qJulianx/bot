@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa (Stable Nodes Only)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (Smart Panel + Pętla + Volume + Permissions)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -32,39 +32,33 @@ const emptyTimers = new Map();
 const lastPanelMessage = new Map(); 
 
 // ==========================================
-// KONFIGURACJA UPRAWNIEŃ (4 ROLE)
+// KONFIGURACJA UPRAWNIEŃ (NOWOŚĆ)
 // ==========================================
+// Tutaj są wszystkie ID ról, które mają dostęp do komend premium (!pw, !fembed itp.)
 const ALLOWED_ROLES = [
-    '1447757045947174972', 
-    '1447764029882896487', 
-    '1447970901575471286', 
-    '1446904206903742534'  
+    '1447757045947174972', // Stara rola 1
+    '1447764029882896487', // Stara rola 2
+    '1447970901575471286', // Nowa rola 1
+    '1446904206903742534'  // Nowa rola 2
 ];
 
 const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
 
+// Funkcja sprawdzająca uprawnienia (Rola z listy LUB Administrator)
 function checkPermissions(member) {
     if (member.permissions.has(PermissionsBitField.Flags.Administrator)) return true;
     return member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
 }
 
 // ==========================================
-// KONFIGURACJA LAVALINK (TYLKO STABILNE)
+// KONFIGURACJA LAVALINK
 // ==========================================
 const NODES = [
-    // 1. GŁÓWNY (Najlepszy)
     {
         name: 'AjieDev-V4', 
         url: 'lava-v4.ajieblogs.eu.org:443', 
         auth: 'https://dsc.gg/ajidevserver', 
         secure: true 
-    },
-    // 2. ZAPASOWY (Też bardzo dobry)
-    {
-        name: 'Serenetia-V4',
-        url: 'lavalinkv4.serenetia.com:443',
-        auth: 'https://dsc.gg/ajidevserver',
-        secure: true
     }
 ];
 
@@ -93,27 +87,7 @@ const kazagumo = new Kazagumo({
 });
 
 // ==========================================
-// AUTO-FIX: WYRZUCENIE Z KANAŁU
-// ==========================================
-client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
-    if (oldState.member.id === client.user.id) {
-        if (oldState.channelId && !newState.channelId) {
-            const player = kazagumo.players.get(oldState.guild.id);
-            if (player) {
-                console.log(`[Auto-Fix] Bot rozłączony. Niszczę playera.`);
-                player.destroy();
-                if (lastPanelMessage.has(oldState.guild.id)) lastPanelMessage.delete(oldState.guild.id);
-                if (emptyTimers.has(oldState.guild.id)) {
-                    clearTimeout(emptyTimers.get(oldState.guild.id));
-                    emptyTimers.delete(oldState.guild.id);
-                }
-            }
-        }
-    }
-});
-
-// ==========================================
-// EVENT: START UTWORU (SMART PANEL)
+// EVENTY MUZYCZNE (SMART PANEL)
 // ==========================================
 kazagumo.on("playerStart", async (player, track) => {
     if (emptyTimers.has(player.guildId)) {
@@ -123,16 +97,6 @@ kazagumo.on("playerStart", async (player, track) => {
 
     const channel = client.channels.cache.get(player.textId);
     if (!channel) return;
-
-    // 1. Usuwamy stary panel ZANIM wyślemy nowy (zmniejsza szansę na spam)
-    if (lastPanelMessage.has(player.guildId)) {
-        const lastMsgId = lastPanelMessage.get(player.guildId);
-        try {
-            const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
-            if (oldMsg) await oldMsg.delete();
-        } catch (e) {}
-        lastPanelMessage.delete(player.guildId);
-    }
 
     const embed = new EmbedBuilder()
         .setTitle('🎶 Gramy:')
@@ -159,14 +123,35 @@ kazagumo.on("playerStart", async (player, track) => {
         new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
     );
 
-    let footerText = `🔊 Vol: ${player.volume}% | 🔁 Pętla: ${loopStatus}`;
-    const nodeName = player.shoukaku.node ? player.shoukaku.node.name : 'Auto';
-    footerText += ` | 📡 Node: ${nodeName}`;
+    let footerText = `🔊 Głośność: ${player.volume}%`;
+    if (player.loop !== 'none') footerText += ` | 🔁 Pętla: ${loopStatus}`;
     embed.setFooter({ text: footerText });
 
-    // 2. Wysyłamy nową wiadomość
-    const msg = await channel.send({ embeds: [embed], components: [row] });
-    lastPanelMessage.set(player.guildId, msg.id);
+    let messageUpdated = false;
+    const lastMsgId = lastPanelMessage.get(player.guildId);
+
+    if (lastMsgId) {
+        const lastChannelMsgId = channel.lastMessageId;
+        if (lastChannelMsgId === lastMsgId) {
+            try {
+                const existingMsg = await channel.messages.fetch(lastMsgId);
+                if (existingMsg) {
+                    await existingMsg.edit({ embeds: [embed], components: [row] });
+                    messageUpdated = true;
+                }
+            } catch (e) { messageUpdated = false; }
+        } else {
+            try {
+                const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
+                if (oldMsg) await oldMsg.delete();
+            } catch (e) {}
+        }
+    }
+
+    if (!messageUpdated) {
+        const msg = await channel.send({ embeds: [embed], components: [row] });
+        lastPanelMessage.set(player.guildId, msg.id);
+    }
 });
 
 kazagumo.on("playerEnd", (player) => {});
@@ -174,7 +159,6 @@ kazagumo.on("playerEnd", (player) => {});
 kazagumo.on("playerEmpty", async (player) => {
     const channel = client.channels.cache.get(player.textId);
     
-    // Usuwamy panel po zakończeniu
     if (lastPanelMessage.has(player.guildId)) {
         const lastMsgId = lastPanelMessage.get(player.guildId);
         try {
@@ -185,7 +169,7 @@ kazagumo.on("playerEmpty", async (player) => {
     }
 
     if (twentyFourSeven.get(player.guildId)) {
-        if (channel) channel.send("zzz... Kolejka pusta (Tryb 24/7).");
+        if (channel) channel.send("zzz... Kolejka pusta, ale czekam (Tryb 24/7).");
         return; 
     }
 
@@ -194,7 +178,7 @@ kazagumo.on("playerEmpty", async (player) => {
     const timer = setTimeout(() => {
         if (!player.queue.length && !player.playing) {
             player.destroy();
-            if (channel) channel.send("⏹️ Brak aktywności. Wychodzę.");
+            if (channel) channel.send("⏹️ Brak aktywności. Wychodzę z kanału.");
             emptyTimers.delete(player.guildId);
         }
     }, 60 * 1000); 
@@ -202,13 +186,14 @@ kazagumo.on("playerEmpty", async (player) => {
     emptyTimers.set(player.guildId, timer);
 });
 
-// LOGOWANIE BŁĘDÓW BEZ CRASHA
-kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest GOTOWY!`));
-kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} BŁĄD: ${error.message}`));
+kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest gotowy!`));
+kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} błąd:`, error));
 
 // ==========================================
 // FUNKCJE POMOCNICZE
 // ==========================================
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function createEmbedModal(targetChannelId) {
     const modal = new ModalBuilder()
@@ -227,8 +212,11 @@ function createEmbedModal(targetChannelId) {
     return modal;
 }
 
+// Zaktualizowana funkcja handleMassDm używająca checkPermissions
 async function handleMassDm(source, role, contentToSend) {
     const member = source.member;
+    
+    // Używamy nowej funkcji sprawdzającej uprawnienia
     if (!checkPermissions(member)) {
         const msg = '⛔ Nie masz uprawnień do tej komendy.';
         if (source.reply) return source.reply({ content: msg, flags: MessageFlags.Ephemeral });
@@ -265,7 +253,7 @@ async function handleMassDm(source, role, contentToSend) {
         try {
             await targetMember.send(`**Wiadomość od administracji:**\n${contentToSend}`);
             sentCount++;
-            if (useSleep) await new Promise(r => setTimeout(r, 2000)); 
+            if (useSleep) await sleep(2000); 
         } catch (error) { errorCount++; }
     }
 
@@ -276,6 +264,7 @@ async function handleMassDm(source, role, contentToSend) {
 
 function generateQueueString(player) {
     if (!player) return 'Nic nie gra.';
+
     const prev = player.queue.previous || [];
     const historyList = prev.slice(-5).map((t, i) => `🔙 ${i + 1}. ~~${t.title}~~`).join('\n');
     const current = `💿 **${player.queue.current?.title || 'Nieznany'}**`;
@@ -284,15 +273,20 @@ function generateQueueString(player) {
     let finalString = '';
     if (historyList) finalString += `**Już leciało:**\n${historyList}\n\n`;
     finalString += `**Teraz gra:**\n${current}\n\n`;
-    if (nextList) finalString += `**Następne w kolejce:**\n${nextList}`;
-    else finalString += `**Następne w kolejce:**\n(Koniec kolejki)`;
     
+    if (nextList) {
+        finalString += `**Następne w kolejce:**\n${nextList}`;
+    } else {
+        finalString += `**Następne w kolejce:**\n(Koniec kolejki)`;
+    }
+
     if (player.queue.length > 10) finalString += `\n\n...i ${player.queue.length - 10} więcej.`;
+
     return finalString;
 }
 
 // ==========================================
-// START BOTA I REJESTRACJA KOMEND
+// START BOTA
 // ==========================================
 
 client.once(Events.ClientReady, async () => {
@@ -305,8 +299,30 @@ client.once(Events.ClientReady, async () => {
         new SlashCommandBuilder().setName('stop').setDescription('Zatrzymuje muzykę'),
         new SlashCommandBuilder().setName('skip').setDescription('Pomija utwór'),
         new SlashCommandBuilder().setName('queue').setDescription('Pokazuje kolejkę'),
-        new SlashCommandBuilder().setName('pętla').setDescription('Ustawia tryb pętli').addStringOption(o => o.setName('tryb').setDescription('Tryb').setRequired(true).addChoices({ name: '❌ Wyłącz', value: 'off' }, { name: '🔂 Utwór', value: 'track' }, { name: '🔁 Kolejka', value: 'queue' }, { name: '🔀 Losowa', value: 'random' })),
-        new SlashCommandBuilder().setName('volume').setDescription('Ustawia głośność (0-200%)').addIntegerOption(o => o.setName('poziom').setDescription('%').setRequired(true).setMinValue(0).setMaxValue(200)),
+        new SlashCommandBuilder()
+            .setName('pętla')
+            .setDescription('Ustawia tryb pętli')
+            .addStringOption(option =>
+                option.setName('tryb')
+                    .setDescription('Wybierz tryb pętli')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: '❌ Wyłącz', value: 'off' },
+                        { name: '🔂 Utwór (jeden)', value: 'track' },
+                        { name: '🔁 Kolejka (wszystko)', value: 'queue' },
+                        { name: '🔀 Losowa (Shuffle + Pętla)', value: 'random' }
+                    )
+            ),
+        new SlashCommandBuilder()
+            .setName('volume')
+            .setDescription('Ustawia głośność odtwarzania (0-200%)')
+            .addIntegerOption(option =>
+                option.setName('poziom')
+                    .setDescription('Procent głośności (np. 50, 100)')
+                    .setRequired(true)
+                    .setMinValue(0)
+                    .setMaxValue(200)
+            ),
     ];
 
     const guild = client.guilds.cache.get(GUILD_ID);
@@ -322,7 +338,7 @@ client.once(Events.ClientReady, async () => {
 });
 
 // ==========================================
-// INTERAKCJE (PRZYCISKI, SLASH, MODAL)
+// OBSŁUGA INTERAKCJI (SLASH + BUTTONS + MODALS)
 // ==========================================
 client.on(Events.InteractionCreate, async interaction => {
     
@@ -330,6 +346,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const player = kazagumo.players.get(interaction.guildId);
 
         if (interaction.customId === 'openEmbedModal') {
+            // Używamy nowej funkcji sprawdzania uprawnień
             if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
             return await interaction.showModal(createEmbedModal(interaction.channelId));
         }
@@ -337,42 +354,51 @@ client.on(Events.InteractionCreate, async interaction => {
         if (['music_pause', 'music_skip', 'music_stop', 'music_queue', 'music_247'].includes(interaction.customId)) {
             
             if (interaction.customId === 'music_247') {
-                if (!interaction.member.voice.channel) return interaction.reply({ content: '❌ Musisz być na kanale!', flags: MessageFlags.Ephemeral });
+                if (!interaction.member.voice.channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
                 const currentState = twentyFourSeven.get(interaction.guildId) || false;
                 twentyFourSeven.set(interaction.guildId, !currentState);
-                return interaction.reply({ content: `🔄 Tryb 24/7: **${!currentState ? 'ON' : 'OFF'}**.`, flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: `🔄 Tryb 24/7 został **${!currentState ? 'WŁĄCZONY ✅' : 'WYŁĄCZONY ❌'}**.`, flags: MessageFlags.Ephemeral });
             }
 
-            if (!player) return interaction.reply({ content: '⛔ Nic nie gra.', flags: MessageFlags.Ephemeral });
-            if (!interaction.member.voice.channel) return interaction.reply({ content: '❌ Musisz być na kanale!', flags: MessageFlags.Ephemeral });
+            if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+            if (!interaction.member.voice.channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
 
             if (interaction.customId === 'music_pause') {
-                player.setPaused(!player.paused);
-                return interaction.reply({ content: player.paused ? '⏸️' : '▶️', flags: MessageFlags.Ephemeral });
+                const isPaused = !player.paused;
+                player.setPaused(isPaused);
+                return interaction.reply({ content: isPaused ? '⏸️ Zauzowano.' : '▶️ Wznowiono.', flags: MessageFlags.Ephemeral });
             }
+
             if (interaction.customId === 'music_skip') {
                 player.skip();
-                return interaction.reply({ content: '⏭️', flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: '⏭️ Pomijanie...', flags: MessageFlags.Ephemeral });
             }
+
             if (interaction.customId === 'music_stop') {
                 player.destroy();
                 if (lastPanelMessage.has(interaction.guildId)) {
-                    const id = lastPanelMessage.get(interaction.guildId);
-                    interaction.channel.messages.fetch(id).then(m => m.delete()).catch(() => {});
+                    const lastMsgId = lastPanelMessage.get(interaction.guildId);
+                    try {
+                        const oldMsg = await interaction.channel.messages.fetch(lastMsgId).catch(() => null);
+                        if (oldMsg) await oldMsg.delete();
+                    } catch (e) {}
                     lastPanelMessage.delete(interaction.guildId);
                 }
-                return interaction.reply({ content: '⏹️' });
+                return interaction.reply({ content: '⏹️ Zatrzymano i wyczyszczono.' });
             }
+
             if (interaction.customId === 'music_queue') {
-                 return interaction.reply({ content: generateQueueString(player), flags: MessageFlags.Ephemeral });
+                 const queueText = generateQueueString(player);
+                 return interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
             }
         }
     }
 
     if (interaction.isChatInputCommand()) {
+
         if (interaction.commandName === 'play') {
             const { channel } = interaction.member.voice;
-            if (!channel) return interaction.reply({ content: '❌ Wejdź na kanał!', flags: MessageFlags.Ephemeral });
+            if (!channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
 
             const query = interaction.options.getString('utwor');
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -383,12 +409,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     emptyTimers.delete(interaction.guildId);
                 }
 
-                // Zombie check
-                let player = kazagumo.players.get(interaction.guildId);
-                const botVoice = interaction.guild.members.me.voice.channelId;
-                if (player && !botVoice) { player.destroy(); player = null; }
-
-                player = await kazagumo.createPlayer({
+                const player = await kazagumo.createPlayer({
                     guildId: interaction.guildId,
                     textId: interaction.channelId,
                     voiceId: channel.id,
@@ -397,61 +418,95 @@ client.on(Events.InteractionCreate, async interaction => {
                 });
 
                 const result = await kazagumo.search(query, { requester: interaction.user });
-                if (!result.tracks.length) return interaction.editReply("❌ Nie znaleziono.");
+                if (!result.tracks.length) return interaction.editReply("❌ Nie znaleziono utworu.");
 
                 if (result.type === "PLAYLIST") {
                     for (let track of result.tracks) player.queue.add(track);
-                    await interaction.editReply(`✅ Dodano playlistę: **${result.playlistName}**`);
+                    await interaction.editReply(`✅ Dodano playlistę: **${result.playlistName}** (${result.tracks.length} utworów)`);
                 } else {
                     player.queue.add(result.tracks[0]);
-                    await interaction.editReply(`✅ Dodano: **${result.tracks[0].title}**`);
+                    await interaction.editReply(`✅ Dodano do kolejki: **${result.tracks[0].title}**`);
                 }
 
                 if (!player.playing && !player.paused) player.play();
 
             } catch (e) {
-                console.error(e);
-                await interaction.editReply({ content: `❌ Błąd połączenia.` });
+                console.error('Błąd Lavalink:', e);
+                await interaction.editReply({ content: `❌ Błąd połączenia z węzłem Lavalink.` });
             }
         }
 
         if (interaction.commandName === 'stop') {
             const player = kazagumo.players.get(interaction.guildId);
-            if (player) player.destroy();
-            interaction.reply('⏹️');
+            if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+            player.destroy();
+            await interaction.reply('⏹️ Zatrzymano i rozłączono.');
         }
+
         if (interaction.commandName === 'skip') {
             const player = kazagumo.players.get(interaction.guildId);
-            if (player) player.skip();
-            interaction.reply('⏭️');
+            if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+            player.skip();
+            await interaction.reply('⏭️ Pominięto.');
         }
+
         if (interaction.commandName === 'queue') {
             const player = kazagumo.players.get(interaction.guildId);
-            interaction.reply({ content: generateQueueString(player), flags: MessageFlags.Ephemeral });
+            const queueText = generateQueueString(player);
+            await interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
         }
-        if (interaction.commandName === 'volume') {
-            const player = kazagumo.players.get(interaction.guildId);
-            if (player) player.setVolume(interaction.options.getInteger('poziom'));
-            interaction.reply({ content: `🔊 ${interaction.options.getInteger('poziom')}%`, flags: MessageFlags.Ephemeral });
-        }
+
         if (interaction.commandName === 'pętla') {
             const player = kazagumo.players.get(interaction.guildId);
-            if (player) {
-                const mode = interaction.options.getString('tryb');
-                if (mode === 'random') { player.setLoop('queue'); player.queue.shuffle(); }
-                else player.setLoop(mode === 'off' ? 'none' : mode);
-                interaction.reply({ content: `Tryb pętli: ${mode}`, flags: MessageFlags.Ephemeral });
-            } else interaction.reply({ content: '⛔ Nic nie gra.', flags: MessageFlags.Ephemeral });
+            if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+            
+            const mode = interaction.options.getString('tryb');
+
+            if (mode === 'off') {
+                player.setLoop('none');
+                return interaction.reply({ content: '❌ Pętla wyłączona.', flags: MessageFlags.Ephemeral });
+            }
+
+            if (mode === 'track') {
+                player.setLoop('track');
+                return interaction.reply({ content: '🔂 Pętla utworu włączona.', flags: MessageFlags.Ephemeral });
+            }
+
+            if (mode === 'queue') {
+                player.setLoop('queue');
+                return interaction.reply({ content: '🔁 Pętla kolejki włączona.', flags: MessageFlags.Ephemeral });
+            }
+
+            if (mode === 'random') {
+                player.setLoop('queue'); 
+                player.queue.shuffle();  
+                return interaction.reply({ content: '🔀 Pętla losowa włączona (kolejka wymieszana i zapętlona).', flags: MessageFlags.Ephemeral });
+            }
+        }
+
+        if (interaction.commandName === 'volume') {
+            const player = kazagumo.players.get(interaction.guildId);
+            if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+            
+            if (!interaction.member.voice.channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
+
+            const volume = interaction.options.getInteger('poziom');
+            player.setVolume(volume);
+            
+            return interaction.reply({ content: `🔊 Głośność ustawiona na **${volume}%**.`, flags: MessageFlags.Ephemeral });
         }
 
         if (interaction.commandName === 'fembed') {
+            // Używamy nowej funkcji sprawdzania uprawnień
             if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
-            await interaction.showModal(createEmbedModal(interaction.channelId));
+            const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
+            await interaction.showModal(createEmbedModal(targetChannel.id));
         }
+
         if (interaction.commandName === 'pw') {
             const role = interaction.options.getRole('ranga');
-            const msg = interaction.options.getString('wiadomosc');
-            await handleMassDm(interaction, role, msg);
+            const messageContent = interaction.options.getString('wiadomosc');
+            await handleMassDm(interaction, role, messageContent);
         }
     }
 
@@ -469,9 +524,9 @@ client.on(Events.InteractionCreate, async interaction => {
         if (footer) embed.setFooter({ text: footer });
 
         try {
-            const ch = await client.channels.fetch(targetChannelId);
-            await ch.send({ embeds: [embed] });
-            await interaction.reply({ content: `✅ Wysłano.`, flags: MessageFlags.Ephemeral });
+            const channel = await client.channels.fetch(targetChannelId);
+            await channel.send({ embeds: [embed] });
+            await interaction.reply({ content: `✅ Wysłano na ${channel}.`, flags: MessageFlags.Ephemeral });
         } catch (err) { await interaction.reply({ content: '❌ Błąd.', flags: MessageFlags.Ephemeral }); }
     }
 });
@@ -482,7 +537,6 @@ client.on(Events.InteractionCreate, async interaction => {
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
-    // !play (Tekstowe)
     if (message.content.startsWith('!play')) {
         const { channel } = message.member.voice;
         if (!channel) return message.reply('❌ Musisz być na kanale głosowym!');
@@ -495,12 +549,7 @@ client.on(Events.MessageCreate, async message => {
                 emptyTimers.delete(message.guildId);
             }
 
-            // Zombie Check dla wersji tekstowej
-            let player = kazagumo.players.get(message.guildId);
-            const botVoice = message.guild.members.me.voice.channelId;
-            if (player && !botVoice) { player.destroy(); player = null; }
-
-            player = await kazagumo.createPlayer({
+            const player = await kazagumo.createPlayer({
                 guildId: message.guildId,
                 textId: message.channelId,
                 voiceId: channel.id,
@@ -515,15 +564,12 @@ client.on(Events.MessageCreate, async message => {
             message.react('🎵');
         } catch (e) { console.error(e); }
     }
-
-    // !fembed (Tekstowe)
     if (message.content === '!fembed') {
+        // Używamy nowej funkcji sprawdzania uprawnień
         if (!checkPermissions(message.member)) return message.reply('⛔ Brak uprawnień.');
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('openEmbedModal').setLabel('Stwórz').setStyle(ButtonStyle.Primary));
-        await message.reply({ content: 'Kreator:', components: [row] });
+        await message.reply({ content: 'Otwórz kreator:', components: [row] });
     }
-
-    // !pw (Tekstowe)
     if (message.content.startsWith('!pw')) {
         const args = message.content.split(' ');
         if (args.length < 3) return message.reply('Użycie: `!pw @Ranga Wiadomość`');
