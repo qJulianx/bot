@@ -20,7 +20,7 @@ const {
     PermissionsBitField 
 } = require('discord.js');
 const { DisTube } = require('distube');
-// POPRAWKA 1: Importujemy ffmpeg ręcznie
+// Importujemy ffmpeg ręcznie, żeby bot wiedział gdzie on jest (naprawia ciszę na hostingu)
 const ffmpegPath = require('ffmpeg-static');
 
 const client = new Client({
@@ -34,7 +34,7 @@ const client = new Client({
 });
 
 // ==========================================
-// KONFIGURACJA
+// KONFIGURACJA (UZUPEŁNIJ TE 3 LINIJKI!)
 // ==========================================
 
 const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
@@ -42,21 +42,22 @@ const ROLE_PW_ID = '1447757045947174972';
 const ROLE_EMBED_ID = '1447764029882896487';
 
 // ==========================================
-// KONFIGURACJA DISTUBE (POPRAWIONA)
+// KONFIGURACJA DISTUBE (NAPRAWIONA)
 // ==========================================
 const distube = new DisTube(client, {
     emitNewSongOnly: true,
-    // POPRAWKA 2: Wskazujemy ścieżkę do ffmpeg
+    // Kluczowe ustawienie dla Render/Linux: wskazujemy ścieżkę do ffmpeg
     ffmpeg: {
         path: ffmpegPath, 
     },
-    // POPRAWKA 3: Opcje dla YTDL (zmniejszają szansę na zacięcie)
+    // Opcje YTDL pomagające w stabilności
     ytdlOptions: {
         quality: 'highestaudio',
         highWaterMark: 1 << 25,
     },
 });
 
+// Obsługa zdarzeń muzycznych
 distube
     .on('playSong', (queue, song) => {
         const embed = new EmbedBuilder()
@@ -73,12 +74,12 @@ distube
     .on('addSong', (queue, song) => queue.textChannel.send(`✅ Dodano: **${song.name}** - \`${song.formattedDuration}\``))
     .on('addList', (queue, playlist) => queue.textChannel.send(`✅ Dodano playlistę: **${playlist.name}** (${playlist.songs.length} utworów)`))
     .on('error', (channel, e) => {
-        console.error('BŁĄD DISTUBE:', e); // Logujemy błąd do konsoli, żebyś go widział
-        if (channel) channel.send(`❌ Błąd: ${e.message.slice(0, 100)}`);
+        console.error('BŁĄD DISTUBE:', e);
+        if (channel) channel.send(`❌ Błąd odtwarzania (sprawdź konsolę).`);
     });
 
 // ==========================================
-// FUNKCJE POMOCNICZE
+// FUNKCJE POMOCNICZE (PW & EMBED)
 // ==========================================
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -91,7 +92,7 @@ function createEmbedModal(targetChannelId) {
     const inputs = [
         new TextInputBuilder().setCustomId('embedTitle').setLabel("Tytuł").setStyle(TextInputStyle.Short).setRequired(false),
         new TextInputBuilder().setCustomId('embedDesc').setLabel("Opis").setStyle(TextInputStyle.Paragraph).setRequired(true),
-        new TextInputBuilder().setCustomId('embedColor').setLabel("Kolor").setStyle(TextInputStyle.Short).setPlaceholder('Blue').setRequired(false),
+        new TextInputBuilder().setCustomId('embedColor').setLabel("Kolor (np. Blue)").setStyle(TextInputStyle.Short).setPlaceholder('Blue').setRequired(false),
         new TextInputBuilder().setCustomId('embedImage').setLabel("Obrazek (URL)").setStyle(TextInputStyle.Short).setRequired(false),
         new TextInputBuilder().setCustomId('embedFooter').setLabel("Stopka").setStyle(TextInputStyle.Short).setRequired(false)
     ];
@@ -152,14 +153,13 @@ async function handleMassDm(source, role, contentToSend) {
 client.once('ready', async () => {
 	console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
 
-    // Lista komend Slash
     const commands = [
         new SlashCommandBuilder().setName('pw').setDescription('Masowa wiadomość DM').addRoleOption(o => o.setName('ranga').setDescription('Ranga').setRequired(true)).addStringOption(o => o.setName('wiadomosc').setDescription('Treść').setRequired(true)),
         new SlashCommandBuilder().setName('fembed').setDescription('Kreator Embedów').addChannelOption(o => o.setName('kanal').setDescription('Gdzie wysłać?')),
         new SlashCommandBuilder().setName('play').setDescription('Odtwarza muzykę').addStringOption(o => o.setName('utwor').setDescription('Link lub nazwa piosenki').setRequired(true)),
-        new SlashCommandBuilder().setName('stop').setDescription('Zatrzymuje muzykę i wyrzuca bota'),
-        new SlashCommandBuilder().setName('skip').setDescription('Pomija obecny utwór'),
-        new SlashCommandBuilder().setName('queue').setDescription('Pokazuje kolejkę utworów'),
+        new SlashCommandBuilder().setName('stop').setDescription('Zatrzymuje muzykę'),
+        new SlashCommandBuilder().setName('skip').setDescription('Pomija utwór'),
+        new SlashCommandBuilder().setName('queue').setDescription('Pokazuje kolejkę'),
     ];
 
     const guild = client.guilds.cache.get(GUILD_ID);
@@ -169,7 +169,7 @@ client.once('ready', async () => {
             console.log(`✅ Komendy zarejestrowane dla serwera: ${guild.name}`);
         } else {
             await client.application.commands.set(commands);
-            console.log('⚠️ Rejestracja globalna (może potrwać 1h).');
+            console.log('⚠️ Rejestracja globalna (może potrwać do 1h).');
         }
     } catch (e) { console.error('Błąd rejestracji:', e); }
 });
@@ -180,6 +180,7 @@ client.once('ready', async () => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
+    // --- /play ---
     if (interaction.commandName === 'play') {
         const voiceChannel = interaction.member.voice.channel;
         if (!voiceChannel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', ephemeral: true });
@@ -194,37 +195,42 @@ client.on('interactionCreate', async interaction => {
             });
         } catch (e) {
             console.error('Błąd play:', e);
-            await interaction.followUp({ content: '❌ Błąd podczas odtwarzania (sprawdź konsolę).', ephemeral: true });
+            await interaction.followUp({ content: '❌ Błąd odtwarzania.', ephemeral: true });
         }
     }
 
+    // --- /stop ---
     if (interaction.commandName === 'stop') {
         const queue = distube.getQueue(interaction.guildId);
         if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', ephemeral: true });
         queue.stop();
-        await interaction.reply('⏹️ Zatrzymano odtwarzanie.');
+        await interaction.reply('⏹️ Zatrzymano.');
     }
 
+    // --- /skip ---
     if (interaction.commandName === 'skip') {
         const queue = distube.getQueue(interaction.guildId);
         if (!queue) return interaction.reply({ content: '⛔ Nic teraz nie gra.', ephemeral: true });
-        try { await queue.skip(); await interaction.reply('⏭️ Pominięto utwór.'); } 
+        try { await queue.skip(); await interaction.reply('⏭️ Pominięto.'); } 
         catch { await interaction.reply({ content: '⚠️ To ostatni utwór.', ephemeral: true }); }
     }
 
+    // --- /queue ---
     if (interaction.commandName === 'queue') {
         const queue = distube.getQueue(interaction.guildId);
-        if (!queue) return interaction.reply({ content: 'Kolejka jest pusta.', ephemeral: true });
+        if (!queue) return interaction.reply({ content: 'Pusto.', ephemeral: true });
         const q = queue.songs.slice(0, 10).map((s, i) => `${i === 0 ? 'Gra:' : i + '.'} ${s.name}`).join('\n');
-        await interaction.reply(`**Kolejka (Top 10):**\n${q}`);
+        await interaction.reply(`**Kolejka:**\n${q}`);
     }
 
+    // --- /fembed ---
     if (interaction.commandName === 'fembed') {
         if (!interaction.member.roles.cache.has(ROLE_EMBED_ID)) return interaction.reply({ content: '⛔ Brak uprawnień.', ephemeral: true });
         const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
         await interaction.showModal(createEmbedModal(targetChannel.id));
     }
 
+    // --- /pw ---
     if (interaction.commandName === 'pw') {
         const role = interaction.options.getRole('ranga');
         const messageContent = interaction.options.getString('wiadomosc');
