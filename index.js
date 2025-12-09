@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa z Lavalink (Smart Panel + Pętla + Volume + Permissions)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (High Availability)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -32,35 +32,55 @@ const emptyTimers = new Map();
 const lastPanelMessage = new Map(); 
 
 // ==========================================
-// KONFIGURACJA UPRAWNIEŃ (NOWOŚĆ)
-// ==========================================
-// Tutaj są wszystkie ID ról, które mają dostęp do komend premium (!pw, !fembed itp.)
-const ALLOWED_ROLES = [
-    '1447757045947174972', // Stara rola 1
-    '1447764029882896487', // Stara rola 2
-    '1447970901575471286', // Nowa rola 1
-    '1446904206903742534'  // Nowa rola 2
-];
-
-const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
-
-// Funkcja sprawdzająca uprawnienia (Rola z listy LUB Administrator)
-function checkPermissions(member) {
-    if (member.permissions.has(PermissionsBitField.Flags.Administrator)) return true;
-    return member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
-}
-
-// ==========================================
-// KONFIGURACJA LAVALINK
+// KONFIGURACJA LAVALINK (PRIORYTET + BACKUP)
 // ==========================================
 const NODES = [
+    // 1. GŁÓWNY (Twój obecny, sprawdzony)
     {
         name: 'AjieDev-V4', 
         url: 'lava-v4.ajieblogs.eu.org:443', 
         auth: 'https://dsc.gg/ajidevserver', 
         secure: true 
+    },
+    // 2. BACKUP 1 (Serenetia - Bardzo stabilny)
+    {
+        name: 'Serenetia-V4',
+        url: 'lavalinkv4.serenetia.com:443',
+        auth: 'https://dsc.gg/ajidevserver',
+        secure: true
+    },
+    // 3. BACKUP 2 (Fedot Compot - Obsługuje dużo źródeł)
+    {
+        name: 'Fedot_Compot',
+        url: 'lavalink.fedotcompot.net:443',
+        auth: 'https://discord.gg/bXXCZzKAyp',
+        secure: true
+    },
+    // 4. BACKUP 3 (Oddblox - Inny port, bez SSL, jako ostateczność)
+    {
+        name: 'Oddblox_SGP',
+        url: 's13.oddblox.us:28405',
+        auth: 'quangloc2018',
+        secure: false 
     }
 ];
+
+// ==========================================
+// KONFIGURACJA UPRAWNIEŃ
+// ==========================================
+const ALLOWED_ROLES = [
+    '1447757045947174972', 
+    '1447764029882896487', 
+    '1447970901575471286', 
+    '1446904206903742534'  
+];
+
+const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
+
+function checkPermissions(member) {
+    if (member.permissions.has(PermissionsBitField.Flags.Administrator)) return true;
+    return member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
+}
 
 const client = new Client({
     intents: [
@@ -82,6 +102,26 @@ const kazagumo = new Kazagumo({
     extends: {
         player: {
             savePreviousSongs: true 
+        }
+    }
+});
+
+// ==========================================
+// OBSŁUGA WYRZUCENIA BOTA (AUTO-FIX)
+// ==========================================
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+    if (oldState.member.id === client.user.id) {
+        if (oldState.channelId && !newState.channelId) {
+            const player = kazagumo.players.get(oldState.guild.id);
+            if (player) {
+                console.log(`[Auto-Fix] Bot wyrzucony. Niszczę playera.`);
+                player.destroy();
+                if (lastPanelMessage.has(oldState.guild.id)) lastPanelMessage.delete(oldState.guild.id);
+                if (emptyTimers.has(oldState.guild.id)) {
+                    clearTimeout(emptyTimers.get(oldState.guild.id));
+                    emptyTimers.delete(oldState.guild.id);
+                }
+            }
         }
     }
 });
@@ -123,8 +163,11 @@ kazagumo.on("playerStart", async (player, track) => {
         new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
     );
 
-    let footerText = `🔊 Głośność: ${player.volume}%`;
-    if (player.loop !== 'none') footerText += ` | 🔁 Pętla: ${loopStatus}`;
+    let footerText = `🔊 Vol: ${player.volume}% | 🔁 Pętla: ${loopStatus}`;
+    // Pobieramy nazwę noda, który aktualnie obsługuje ten stream
+    const nodeName = player.shoukaku.node ? player.shoukaku.node.name : 'Auto';
+    footerText += ` | 📡 Node: ${nodeName}`;
+    
     embed.setFooter({ text: footerText });
 
     let messageUpdated = false;
@@ -186,8 +229,13 @@ kazagumo.on("playerEmpty", async (player) => {
     emptyTimers.set(player.guildId, timer);
 });
 
-kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest gotowy!`));
-kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node ${name} błąd:`, error));
+// LOGOWANIE BŁĘDÓW LAVALINK (Bez wywalania bota)
+kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node ${name} jest GOTOWY!`));
+kazagumo.shoukaku.on('error', (name, error) => {
+    // To tylko informacja w konsoli, bot sam przełączy się na inny serwer
+    console.error(`❌ Lavalink Node ${name} BŁĄD (zostanie pominięty):`, error.message);
+});
+kazagumo.shoukaku.on('close', (name, code, reason) => console.warn(`⚠️ Lavalink Node ${name} rozłączony.`));
 
 // ==========================================
 // FUNKCJE POMOCNICZE
@@ -212,11 +260,8 @@ function createEmbedModal(targetChannelId) {
     return modal;
 }
 
-// Zaktualizowana funkcja handleMassDm używająca checkPermissions
 async function handleMassDm(source, role, contentToSend) {
     const member = source.member;
-    
-    // Używamy nowej funkcji sprawdzającej uprawnienia
     if (!checkPermissions(member)) {
         const msg = '⛔ Nie masz uprawnień do tej komendy.';
         if (source.reply) return source.reply({ content: msg, flags: MessageFlags.Ephemeral });
@@ -346,7 +391,6 @@ client.on(Events.InteractionCreate, async interaction => {
         const player = kazagumo.players.get(interaction.guildId);
 
         if (interaction.customId === 'openEmbedModal') {
-            // Używamy nowej funkcji sprawdzania uprawnień
             if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
             return await interaction.showModal(createEmbedModal(interaction.channelId));
         }
@@ -409,7 +453,15 @@ client.on(Events.InteractionCreate, async interaction => {
                     emptyTimers.delete(interaction.guildId);
                 }
 
-                const player = await kazagumo.createPlayer({
+                // FIX: Zombie check
+                let player = kazagumo.players.get(interaction.guildId);
+                const botVoiceChannel = interaction.guild.members.me.voice.channelId;
+                if (player && !botVoiceChannel) {
+                    player.destroy();
+                    player = null;
+                }
+
+                player = await kazagumo.createPlayer({
                     guildId: interaction.guildId,
                     textId: interaction.channelId,
                     voiceId: channel.id,
@@ -432,7 +484,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
             } catch (e) {
                 console.error('Błąd Lavalink:', e);
-                await interaction.editReply({ content: `❌ Błąd połączenia z węzłem Lavalink.` });
+                await interaction.editReply({ content: `❌ Błąd połączenia z serwerami muzycznymi. Wszystkie węzły są zajęte lub offline.` });
             }
         }
 
@@ -497,7 +549,6 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         if (interaction.commandName === 'fembed') {
-            // Używamy nowej funkcji sprawdzania uprawnień
             if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
             const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
             await interaction.showModal(createEmbedModal(targetChannel.id));
@@ -549,7 +600,14 @@ client.on(Events.MessageCreate, async message => {
                 emptyTimers.delete(message.guildId);
             }
 
-            const player = await kazagumo.createPlayer({
+            let player = kazagumo.players.get(message.guildId);
+            const botVoiceChannel = message.guild.members.me.voice.channelId;
+            if (player && !botVoiceChannel) {
+                player.destroy();
+                player = null;
+            }
+
+            player = await kazagumo.createPlayer({
                 guildId: message.guildId,
                 textId: message.channelId,
                 voiceId: channel.id,
@@ -565,7 +623,6 @@ client.on(Events.MessageCreate, async message => {
         } catch (e) { console.error(e); }
     }
     if (message.content === '!fembed') {
-        // Używamy nowej funkcji sprawdzania uprawnień
         if (!checkPermissions(message.member)) return message.reply('⛔ Brak uprawnień.');
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('openEmbedModal').setLabel('Stwórz').setStyle(ButtonStyle.Primary));
         await message.reply({ content: 'Otwórz kreator:', components: [row] });
