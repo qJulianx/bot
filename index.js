@@ -22,6 +22,7 @@ const {
     MessageFlags 
 } = require('discord.js');
 const { DisTube } = require('distube');
+const { YtDlpPlugin } = require('@distube/yt-dlp'); // NOWOŚĆ: Plugin do YouTube
 const ffmpegPath = require('ffmpeg-static');
 
 const client = new Client({
@@ -43,13 +44,16 @@ const ROLE_PW_ID = '1447757045947174972';
 const ROLE_EMBED_ID = '1447764029882896487';
 
 // ==========================================
-// KONFIGURACJA DISTUBE (v5)
+// KONFIGURACJA DISTUBE (Z PLUGINEM YT-DLP)
 // ==========================================
 const distube = new DisTube(client, {
     emitNewSongOnly: true,
     ffmpeg: {
         path: ffmpegPath, 
     },
+    plugins: [
+        new YtDlpPlugin() // To naprawia błędy "NO_RESULT" na hostingu
+    ]
 });
 
 distube
@@ -99,11 +103,11 @@ async function handleMassDm(source, role, contentToSend) {
     const member = source.member;
     if (!member.roles.cache.has(ROLE_PW_ID) && !member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         const msg = '⛔ Nie masz uprawnień do tej komendy.';
+        // Używamy flagi Ephemeral dla bezpieczeństwa
         if (source.reply) return source.reply({ content: msg, flags: MessageFlags.Ephemeral });
         return;
     }
 
-    // Używamy deferReply, aby uniknąć błędu 10062 (Unknown interaction) przy dużej liczbie osób
     if (source.isCommand && source.isCommand()) {
         await source.deferReply({ flags: MessageFlags.Ephemeral });
     }
@@ -139,12 +143,13 @@ async function handleMassDm(source, role, contentToSend) {
     }
 
     const finalMsg = `✅ Zakończono!\nWysłano: ${sentCount}\nZablokowane PW: ${errorCount}`;
-    if (source.isCommand && source.isCommand()) await source.followUp({ content: finalMsg, flags: MessageFlags.Ephemeral });
+    // Używamy editReply lub followUp, bo wcześniej zrobiliśmy deferReply
+    if (source.isCommand && source.isCommand()) await source.editReply({ content: finalMsg });
     else await source.channel.send(finalMsg);
 }
 
 // ==========================================
-// START BOTA I REJESTRACJA KOMEND
+// START BOTA
 // ==========================================
 
 client.once(Events.ClientReady, async () => {
@@ -184,7 +189,8 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const query = interaction.options.getString('utwor');
         
-        // ZMIANA: Używamy deferReply, żeby bot miał więcej czasu i nie wywalał "Unknown interaction"
+        // NAJWAŻNIEJSZA ZMIANA: deferReply
+        // Mówimy Discordowi: "Daj mi więcej niż 3 sekundy"
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         await interaction.editReply({ content: `🔍 Szukam: **${query}**...` });
 
@@ -193,10 +199,10 @@ client.on(Events.InteractionCreate, async interaction => {
                 member: interaction.member,
                 textChannel: interaction.channel,
             });
-            // Sukces obsłuży event 'playSong' lub 'addSong'
+            // Jak się uda, DisTube wyśle embed sam
         } catch (e) {
             console.error('Błąd play:', e);
-            await interaction.editReply({ content: '❌ Błąd odtwarzania (sprawdź konsolę).' });
+            await interaction.editReply({ content: `❌ Błąd odtwarzania: ${e.message}` });
         }
     }
 
