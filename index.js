@@ -1,6 +1,6 @@
 const express = require('express');
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 app.get('/', (req, res) => res.send('Bot działa z Lavalink (Smart Panel + Pętla + Volume + Permissions)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
@@ -27,15 +27,15 @@ const client = new Client({
     ],
 });
 
+// Inicjalizacja modułu muzycznego (musi być przed loginem)
+play.init(client);
+
 // ==========================================
 // START BOTA
 // ==========================================
 
 client.once(Events.ClientReady, async () => {
 	console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
-
-    // Inicjalizacja modułu muzycznego
-    play.init(client);
 
     // Łączenie komend muzycznych i moderacyjnych
     const commands = [...moderation.commands, ...play.musicCommands];
