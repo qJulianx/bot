@@ -27,7 +27,25 @@ const NODES = [
         secure: true 
     },
     {
-        name: 'AjieDev-LDP-NonSSL',
+        name: 'AjieDev-V4.2', 
+        url: 'lavalinkv4.serenetia.com:443', 
+        auth: 'https://dsc.gg/ajidevserver', 
+        secure: true 
+    },
+    {
+        name: 'AjieDev-V4.2', 
+        url: 'lava-v4.ajieblogs.eu.org:80', 
+        auth: 'https://dsc.gg/ajidevserver', 
+        secure: false 
+    },
+    {
+        name: 'AjieDev-V4.2', 
+        url: 'lavalinkv4-id.serenetia.com', 
+        auth: 'https://dsc.gg/ajidevserver', 
+        secure: true 
+    },
+    {
+        name: 'AjieDev-LDP-NoSSL',
         url: 'lava-all.ajieblogs.eu.org:80',
         auth: 'https://dsc.gg/ajidevserver',
         secure: false
@@ -35,12 +53,6 @@ const NODES = [
     {
         name: 'Serenetia-V4',
         url: 'lavalinkv4.serenetia.com:443',
-        auth: 'https://dsc.gg/ajidevserver',
-        secure: true
-    },
-    {
-        name: 'AjieDev-V3',
-        url: 'lava-v3.ajieblogs.eu.org:443',
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
     }
