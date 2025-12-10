@@ -25,6 +25,18 @@ const NODES = [
         url: 'lava-v4.ajieblogs.eu.org:443', 
         auth: 'https://dsc.gg/ajidevserver', 
         secure: true 
+    },
+    {
+        name: 'AjieDev-LDP-NonSSL',
+        url: 'lava-all.ajieblogs.eu.org:80',
+        auth: 'https://dsc.gg/ajidevserver',
+        secure: false
+    },
+    {
+        name: 'Serenetia-V4',
+        url: 'lavalinkv4.serenetia.com:443',
+        auth: 'https://dsc.gg/ajidevserver',
+        secure: true
     }
 ];
 
