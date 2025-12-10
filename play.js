@@ -37,6 +37,12 @@ const NODES = [
         url: 'lavalinkv4.serenetia.com:443',
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
+    },
+    {
+        name: 'AjieDev-V3',
+        url: 'lava-v3.ajieblogs.eu.org:443',
+        auth: 'https://dsc.gg/ajidevserver',
+        secure: true
     }
 ];
 
