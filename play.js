@@ -238,7 +238,19 @@ async function handleInteraction(interaction) {
                 if (!interaction.member.voice.channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
                 const currentState = twentyFourSeven.get(interaction.guildId) || false;
                 twentyFourSeven.set(interaction.guildId, !currentState);
-                return interaction.reply({ content: `🔄 Tryb 24/7 został **${!currentState ? 'WŁĄCZONY ✅' : 'WYŁĄCZONY ❌'}**.`, flags: MessageFlags.Ephemeral });
+
+                // Aktualizujemy przycisk na panelu
+                const newState = !currentState;
+                const newRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('music_pause').setEmoji('⏯️').setLabel('Pauza').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId('music_skip').setEmoji('⏭️').setLabel('Skip').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId('music_stop').setEmoji('⏹️').setLabel('Stop').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId('music_247').setEmoji('🔁').setLabel(newState ? '24/7: ON' : '24/7: OFF').setStyle(newState ? ButtonStyle.Success : ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
+                );
+
+                await interaction.message.edit({ components: [newRow] });
+                return interaction.deferUpdate();
             }
 
             if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
@@ -256,16 +268,19 @@ async function handleInteraction(interaction) {
             }
 
             if (interaction.customId === 'music_stop') {
-                player.destroy();
-                if (lastPanelMessage.has(interaction.guildId)) {
-                    const lastMsgId = lastPanelMessage.get(interaction.guildId);
-                    try {
-                        const oldMsg = await interaction.channel.messages.fetch(lastMsgId).catch(() => null);
-                        if (oldMsg) await oldMsg.delete();
-                    } catch (e) {}
-                    lastPanelMessage.delete(interaction.guildId);
+                if (player) {
+                    player.destroy();
+                    // Panel zostaje
+                    return interaction.reply({ content: '⏹️ Zatrzymano i wyczyszczono.' });
+                } else {
+                    // Anty-bug: Jeśli bota nie ma w pamięci, ale jest na kanale -> wyrzuć go
+                    const me = interaction.guild.members.me;
+                    if (me.voice.channel) {
+                        await me.voice.disconnect();
+                        return interaction.reply({ content: '⚠️ Wykryto "martwe" połączenie. Wymuszono rozłączenie.', flags: MessageFlags.Ephemeral });
+                    }
+                    return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
                 }
-                return interaction.reply({ content: '⏹️ Zatrzymano i wyczyszczono.' });
             }
 
             if (interaction.customId === 'music_queue') {
@@ -322,9 +337,19 @@ async function handleInteraction(interaction) {
 
         if (interaction.commandName === 'stop') {
             const player = kazagumo.players.get(interaction.guildId);
-            if (!player) return interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
-            player.destroy();
-            await interaction.reply('⏹️ Zatrzymano i rozłączono.');
+            if (player) {
+                player.destroy();
+                await interaction.reply('⏹️ Zatrzymano i rozłączono.');
+            } else {
+                // Anty-bug
+                const me = interaction.guild.members.me;
+                if (me.voice.channel) {
+                    await me.voice.disconnect();
+                    await interaction.reply({ content: '⚠️ Wykryto "martwe" połączenie. Wymuszono rozłączenie.', flags: MessageFlags.Ephemeral });
+                } else {
+                    await interaction.reply({ content: '⛔ Nic teraz nie gra.', flags: MessageFlags.Ephemeral });
+                }
+            }
             return true;
         }
 

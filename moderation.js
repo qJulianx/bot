@@ -112,6 +112,11 @@ const commands = [
         .setDescription('Masowe usuwanie roli')
         .addRoleOption(option => option.setName('rola').setDescription('Rola do usunięcia').setRequired(true))
         .addRoleOption(option => option.setName('cel').setDescription('Komu usunąć? (Brak = Wszyscy)').setRequired(false)),
+    new SlashCommandBuilder()
+        .setName('moveall-ch')
+        .setDescription('Przenosi użytkowników do Twojego kanału głosowego')
+        .addRoleOption(option => option.setName('ranga').setDescription('Przenieś tylko osoby z tą rangą (Opcjonalne)').setRequired(false))
+        .addUserOption(option => option.setName('osoba').setDescription('Do kogo przenieść? (Domyślnie: do Ciebie)').setRequired(false))
 ];
 
 // ==========================================
@@ -150,7 +155,7 @@ async function handleInteraction(interaction, client) {
                 return interaction.reply({ content: '❌ Nie mogę nadać tej roli (jest wyższa lub równa mojej najwyższej roli).', flags: MessageFlags.Ephemeral });
             }
         
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply();
         
             let targetMembers;
             if (targetRole) {
@@ -169,7 +174,12 @@ async function handleInteraction(interaction, client) {
             let errorCount = 0;
             const total = targetMembers.size;
         
-            await interaction.editReply(`🔄 Rozpoczynam nadawanie roli **${roleToGive.name}** dla **${total}** użytkowników${targetRole ? ` (z rangą **${targetRole.name}**)` : ''}...`);
+            const startEmbed = new EmbedBuilder()
+                .setTitle('🔄 Nadawanie roli w toku...')
+                .setColor('Yellow')
+                .setDescription(`**${interaction.user.username}** rozpoczyna nadawanie roli **${roleToGive.name}** dla **${total}** użytkowników${targetRole ? ` (z rangą **${targetRole.name}**)` : ''}...`);
+
+            await interaction.editReply({ content: null, embeds: [startEmbed] });
         
             for (const [id, member] of targetMembers) {
                 if (member.roles.cache.has(roleToGive.id)) continue; 
@@ -179,7 +189,13 @@ async function handleInteraction(interaction, client) {
                     await sleep(500);
                 } catch (e) { errorCount++; }
             }
-            await interaction.editReply(`✅ Zakończono!\nNadano: **${successCount}**\nBłędy: **${errorCount}**\nJuż mieli: **${total - successCount - errorCount}**`);
+
+            const finishEmbed = new EmbedBuilder()
+                .setTitle('✅ Zakończono!')
+                .setColor('Green')
+                .setDescription(`**${interaction.user.username}** nadał rolę **${roleToGive.name}** dla **${successCount}** użytkowników.\n\n**Szczegóły:**\n✅ Nadano: **${successCount}**\n❌ Błędy: **${errorCount}**\n⏭️ Już mieli: **${total - successCount - errorCount}**`);
+
+            await interaction.editReply({ content: null, embeds: [finishEmbed] });
             return true;
         }
 
@@ -193,7 +209,7 @@ async function handleInteraction(interaction, client) {
                 return interaction.reply({ content: '❌ Nie mogę usunąć tej roli (jest wyższa lub równa mojej najwyższej roli).', flags: MessageFlags.Ephemeral });
             }
         
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply();
         
             let targetMembers;
             if (targetRole) {
@@ -212,7 +228,12 @@ async function handleInteraction(interaction, client) {
             let errorCount = 0;
             const total = targetMembers.size;
         
-            await interaction.editReply(`🔄 Rozpoczynam usuwanie roli **${roleToRemove.name}** dla **${total}** użytkowników${targetRole ? ` (z rangą **${targetRole.name}**)` : ''}...`);
+            const startEmbed = new EmbedBuilder()
+                .setTitle('🔄 Usuwanie roli w toku...')
+                .setColor('Yellow')
+                .setDescription(`**${interaction.user.username}** rozpoczyna usuwanie roli **${roleToRemove.name}** dla **${total}** użytkowników${targetRole ? ` (z rangą **${targetRole.name}**)` : ''}...`);
+
+            await interaction.editReply({ content: null, embeds: [startEmbed] });
         
             for (const [id, member] of targetMembers) {
                 if (!member.roles.cache.has(roleToRemove.id)) continue; 
@@ -222,7 +243,72 @@ async function handleInteraction(interaction, client) {
                     await sleep(500); 
                 } catch (e) { errorCount++; }
             }
-            await interaction.editReply(`✅ Zakończono!\nUsunięto: **${successCount}**\nBłędy: **${errorCount}**\nNie mieli roli: **${total - successCount - errorCount}**`);
+
+            const finishEmbed = new EmbedBuilder()
+                .setTitle('✅ Zakończono!')
+                .setColor('Red')
+                .setDescription(`**${interaction.user.username}** usunął rolę **${roleToRemove.name}** dla **${successCount}** użytkowników.\n\n**Szczegóły:**\n🗑️ Usunięto: **${successCount}**\n❌ Błędy: **${errorCount}**\n⏭️ Nie mieli: **${total - successCount - errorCount}**`);
+
+            await interaction.editReply({ content: null, embeds: [finishEmbed] });
+            return true;
+        }
+
+        if (interaction.commandName === 'moveall-ch') {
+            if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
+
+            const targetUser = interaction.options.getUser('osoba') || interaction.user;
+            const roleFilter = interaction.options.getRole('ranga');
+            
+            const targetMember = await interaction.guild.members.fetch(targetUser.id);
+            const targetChannel = targetMember.voice.channel;
+
+            if (!targetChannel) {
+                return interaction.reply({ content: `❌ Użytkownik **${targetUser.username}** nie jest na żadnym kanale głosowym.`, flags: MessageFlags.Ephemeral });
+            }
+
+            await interaction.deferReply();
+
+            // Pobierz wszystkie kanały głosowe z serwera
+            const channels = interaction.guild.channels.cache.filter(c => c.isVoiceBased() && c.id !== targetChannel.id);
+            let movedCount = 0;
+            let errorCount = 0;
+
+            let membersToMove = [];
+
+            // Zbieramy wszystkich użytkowników do przeniesienia
+            for (const [channelId, channel] of channels) {
+                for (const [memberId, member] of channel.members) {
+                    // Filtracja: Nie ruszamy botów
+                    if (member.user.bot) continue;
+
+                    // Filtracja: Jeśli podano rangę, sprawdź czy user ją ma
+                    if (roleFilter && !member.roles.cache.has(roleFilter.id)) continue;
+
+                    membersToMove.push(member);
+                }
+            }
+
+            if (membersToMove.length === 0) {
+                return interaction.editReply('⚠️ Nie znaleziono nikogo do przeniesienia.');
+            }
+
+            const infoMsg = roleFilter 
+                ? `🔄 Przenoszę **${membersToMove.length}** osób z rangą **${roleFilter.name}** do kanału **${targetChannel.name}**...`
+                : `🔄 Przenoszę **${membersToMove.length}** osób do kanału **${targetChannel.name}**...`;
+            
+            await interaction.editReply(infoMsg);
+
+            for (const member of membersToMove) {
+                try {
+                    await member.voice.setChannel(targetChannel);
+                    movedCount++;
+                    await sleep(200); // Małe opóźnienie, żeby nie zabić API
+                } catch (e) {
+                    errorCount++;
+                }
+            }
+
+            await interaction.editReply(`✅ Przeniesiono: **${movedCount}** osób do **${targetChannel.name}**.\n❌ Błędy: **${errorCount}**.`);
             return true;
         }
     }
