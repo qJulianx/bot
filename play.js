@@ -123,7 +123,8 @@ function init(client) {
             new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
         );
 
-        let footerText = `🔊 Głośność: ${player.volume}%`;
+        const nodeName = player.shoukaku.node.name;
+        let footerText = `🔊 Vol: ${player.volume}% | Lavalink: ${nodeName}`;
         if (player.loop !== 'none') footerText += ` | 🔁 Pętla: ${loopStatus}`;
         embed.setFooter({ text: footerText });
 
@@ -159,14 +160,14 @@ function init(client) {
     kazagumo.on("playerEmpty", async (player) => {
         const channel = client.channels.cache.get(player.textId);
         
-        if (lastPanelMessage.has(player.guildId)) {
-            const lastMsgId = lastPanelMessage.get(player.guildId);
-            try {
-                const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
-                if (oldMsg) await oldMsg.delete();
-            } catch (e) {}
-            lastPanelMessage.delete(player.guildId);
-        }
+        // if (lastPanelMessage.has(player.guildId)) {
+        //     const lastMsgId = lastPanelMessage.get(player.guildId);
+        //     try {
+        //         const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
+        //         if (oldMsg) await oldMsg.delete();
+        //     } catch (e) {}
+        //     lastPanelMessage.delete(player.guildId);
+        // }
 
         if (twentyFourSeven.get(player.guildId)) {
             if (channel) channel.send("zzz... Kolejka pusta, ale czekam (Tryb 24/7).");
@@ -251,7 +252,7 @@ async function handleInteraction(interaction) {
 
             if (interaction.customId === 'music_skip') {
                 player.skip();
-                return interaction.reply({ content: '⏭️ Pomijanie...', flags: MessageFlags.Ephemeral });
+                return interaction.deferUpdate();
             }
 
             if (interaction.customId === 'music_stop') {
@@ -295,7 +296,7 @@ async function handleInteraction(interaction) {
                     guildId: interaction.guildId,
                     textId: interaction.channelId,
                     voiceId: channel.id,
-                    volume: 100,
+                    volume: 40,
                     savePreviousSongs: true 
                 });
 
@@ -406,7 +407,7 @@ async function handleMessage(message) {
                 guildId: message.guildId,
                 textId: message.channelId,
                 voiceId: channel.id,
-                volume: 100,
+                volume: 40,
                 savePreviousSongs: true
             });
             const result = await kazagumo.search(query, { requester: message.author });
