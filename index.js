@@ -14,6 +14,7 @@ const {
 
 const play = require('./play');
 const moderation = require('./moderation');
+const automod = require('./automod');
 
 const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
 
@@ -37,7 +38,8 @@ play.init(client);
 client.once(Events.ClientReady, async () => {
 	console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
 
-    const commands = [...moderation.commands, ...play.musicCommands];
+    const commands = [...moderation.commands, ...play.musicCommands, ...automod.commands];
+
 
     const guild = client.guilds.cache.get(GUILD_ID);
     try {
@@ -57,6 +59,8 @@ client.once(Events.ClientReady, async () => {
 client.on(Events.InteractionCreate, async interaction => {
     if (await play.handleInteraction(interaction)) return;
     if (await moderation.handleInteraction(interaction, client)) return;
+
+    await automod.handleInteraction(interaction, client); 
 });
 
 // ==========================================
