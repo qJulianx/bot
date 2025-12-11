@@ -127,7 +127,7 @@ function init(client) {
             .setThumbnail(track.thumbnail || null)
             .setColor('Green');
 
-        // Ustalanie statusu pętli
+        // Ustalanie statusu pętli do wyświetlenia
         let loopStatus = 'OFF';
         if (player.loop === 'queue') loopStatus = 'Kolejka';
         if (player.loop === 'track') loopStatus = 'Utwór';
@@ -142,7 +142,7 @@ function init(client) {
             new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
         );
 
-        // ZMIANA TUTAJ: Wyświetlamy pętlę zawsze, niezależnie od tego czy jest włączona
+        // Wyświetlamy status pętli ZAWSZE
         const nodeName = player.shoukaku.node.name;
         let footerText = `🔊 Vol: ${player.volume}% | Lavalink: ${nodeName} | 🔁 Pętla: ${loopStatus}`;
         
@@ -299,7 +299,7 @@ async function handleInteraction(interaction) {
                  return interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
             }
 
-            return true; 
+            return true; // Obsłużono
         }
     }
 
@@ -458,9 +458,42 @@ async function handleMessage(message) {
     return false;
 }
 
+// ==========================================
+// AUTO-FIX: OBSŁUGA WYRZUCENIA Z KANAŁU
+// ==========================================
+async function handleVoiceUpdate(oldState, newState) {
+    // Sprawdzamy, czy zmiana dotyczy samego bota
+    if (oldState.member.id === oldState.client.user.id) {
+        
+        // Scenariusz: Bot był na kanale (oldState.channelId) I teraz nie ma go na żadnym (newState.channelId === null)
+        if (oldState.channelId && !newState.channelId) {
+            
+            // Sprawdzamy czy w pamięci Kazagumo istnieje player dla tego serwera
+            const player = kazagumo.players.get(oldState.guild.id);
+            
+            if (player) {
+                console.log(`[Auto-Fix] Bot został wyrzucony z kanału. Resetuję odtwarzacz.`);
+                player.destroy();
+                
+                // Czyścimy timery wyjścia jeśli istnieją
+                if (emptyTimers.has(oldState.guild.id)) {
+                    clearTimeout(emptyTimers.get(oldState.guild.id));
+                    emptyTimers.delete(oldState.guild.id);
+                }
+                
+                // Opcjonalnie: usuwamy panel z czatu
+                if (lastPanelMessage.has(oldState.guild.id)) {
+                    lastPanelMessage.delete(oldState.guild.id);
+                }
+            }
+        }
+    }
+}
+
 module.exports = {
     init,
     musicCommands,
     handleInteraction,
-    handleMessage
+    handleMessage,
+    handleVoiceUpdate
 };

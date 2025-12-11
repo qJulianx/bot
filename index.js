@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
-app.get('/', (req, res) => res.send('Bot działa z Lavalink (Smart Panel + Pętla + Volume + Permissions)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (Full Auto-Fix)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -27,7 +27,7 @@ const client = new Client({
     ],
 });
 
-// Inicjalizacja modułu muzycznego (musi być przed loginem)
+// Inicjalizacja modułu muzycznego
 play.init(client);
 
 // ==========================================
@@ -37,7 +37,6 @@ play.init(client);
 client.once(Events.ClientReady, async () => {
 	console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
 
-    // Łączenie komend muzycznych i moderacyjnych
     const commands = [...moderation.commands, ...play.musicCommands];
 
     const guild = client.guilds.cache.get(GUILD_ID);
@@ -53,16 +52,11 @@ client.once(Events.ClientReady, async () => {
 });
 
 // ==========================================
-// OBSŁUGA INTERAKCJI (SLASH + BUTTONS + MODALS)
+// OBSŁUGA INTERAKCJI
 // ==========================================
 client.on(Events.InteractionCreate, async interaction => {
-    
-    // Sprawdzamy moduł muzyczny
     if (await play.handleInteraction(interaction)) return;
-
-    // Sprawdzamy moduł moderacyjny (zawiera również giverole/ungiverole/muteall)
     if (await moderation.handleInteraction(interaction, client)) return;
-
 });
 
 // ==========================================
@@ -70,28 +64,25 @@ client.on(Events.InteractionCreate, async interaction => {
 // ==========================================
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
-
-    // Sprawdzamy moduł muzyczny
     if (await play.handleMessage(message)) return;
-
-    // Sprawdzamy moduł moderacyjny
     if (await moderation.handleMessage(message)) return;
 });
 
 // ==========================================
-// OBSŁUGA KANAŁÓW GŁOSOWYCH (WAŻNE DLA MUTEALL i MUZYKI)
+// OBSŁUGA KANAŁÓW GŁOSOWYCH (AUTO-FIX + MODERACJA)
 // ==========================================
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     
-    // 1. Przekazujemy zdarzenie do modułu moderacji
-    // To obsługuje tryby 'ch-all-time' (wyciszanie wchodzących) i 'one' (odciszanie po wyjściu admina)
+    // 1. Logika Moderacji (Muteall-ch)
     if (moderation.handleVoiceStateUpdate) {
         await moderation.handleVoiceStateUpdate(oldState, newState);
     }
 
-    // 2. Tutaj można ewentualnie dodać logikę naprawy bota muzycznego (Zombie Player),
-    // ale w strukturze modułowej najlepiej, gdyby play.js sam to obsługiwał w init().
-    // Jeśli bot muzyczny się zatnie po wyrzuceniu, daj znać - dodamy tu fix.
+    // 2. Logika Muzyki (Naprawa po wyrzuceniu bota)
+    // To sprawia, że jak wyrzucisz bota, on się zresetuje i będzie gotowy do ponownego wejścia
+    if (play.handleVoiceUpdate) {
+        await play.handleVoiceUpdate(oldState, newState);
+    }
 });
 
 const token = process.env.TOKEN;
