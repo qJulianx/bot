@@ -12,13 +12,20 @@ const {
 } = require('discord.js');
 
 // ==========================================
+// PAMIĘĆ MODERACJI (Nowość)
+// ==========================================
+// Przechowuje informacje o wyciszonych kanałach: 
+// Key: ChannelID, Value: { mode: 'all-time'|'one', roleId: string|null, ownerId: string }
+const persistentMutes = new Map();
+
+// ==========================================
 // KONFIGURACJA UPRAWNIEŃ
 // ==========================================
 const ALLOWED_ROLES = [
-    '1447757045947174972', // Stara rola 1 - @perm.bot.pw
-    '1447764029882896487', // Stara rola 2 - @perm.bot.embed
-    '1447970901575471286', // Nowa rola 1 - @perm.bot.foxy.*
-    '1446904206903742534'  // Nowa rola 2 - @perms.all*
+    '1447757045947174972', 
+    '1447764029882896487', 
+    '1447970901575471286', 
+    '1446904206903742534'  
 ];
 
 function checkPermissions(member) {
@@ -116,7 +123,25 @@ const commands = [
         .setName('moveall-ch')
         .setDescription('Przenosi użytkowników do Twojego kanału głosowego')
         .addRoleOption(option => option.setName('ranga').setDescription('Przenieś tylko osoby z tą rangą (Opcjonalne)').setRequired(false))
-        .addUserOption(option => option.setName('osoba').setDescription('Do kogo przenieść? (Domyślnie: do Ciebie)').setRequired(false))
+        .addUserOption(option => option.setName('osoba').setDescription('Do kogo przenieść? (Domyślnie: do Ciebie)').setRequired(false)),
+    
+    // --- NOWE KOMENDY ---
+    new SlashCommandBuilder()
+        .setName('muteall-ch')
+        .setDescription('Wycisza użytkowników na kanale głosowym')
+        .addRoleOption(option => option.setName('ranga').setDescription('Wycisz tylko tę rangę (Opcjonalne)').setRequired(false))
+        .addStringOption(option => 
+            option.setName('tryb')
+                .setDescription('Tryb wyciszenia (Opcjonalne)')
+                .setRequired(false)
+                .addChoices(
+                    { name: 'Cały czas (ch-all-time)', value: 'all-time' },
+                    { name: 'Do wyjścia admina (one)', value: 'one' }
+                )
+        ),
+    new SlashCommandBuilder()
+        .setName('unmuteall-ch')
+        .setDescription('Odcisza wszystkich na serwerze i usuwa blokady kanałów')
 ];
 
 // ==========================================
@@ -131,6 +156,78 @@ async function handleInteraction(interaction, client) {
     }
 
     if (interaction.isChatInputCommand()) {
+        // --- MUTEALL-CH ---
+        if (interaction.commandName === 'muteall-ch') {
+            if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
+
+            const voiceChannel = interaction.member.voice.channel;
+            if (!voiceChannel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym.', flags: MessageFlags.Ephemeral });
+
+            const targetRole = interaction.options.getRole('ranga');
+            const mode = interaction.options.getString('tryb'); // 'all-time' lub 'one' lub null
+
+            await interaction.deferReply();
+
+            // 1. Zapisywanie do pamięci (jeśli wybrano tryb)
+            if (mode) {
+                persistentMutes.set(voiceChannel.id, {
+                    mode: mode,
+                    roleId: targetRole ? targetRole.id : null,
+                    ownerId: interaction.user.id
+                });
+            }
+
+            // 2. Wyciszanie obecnych
+            let mutedCount = 0;
+            for (const [id, member] of voiceChannel.members) {
+                if (member.user.bot) continue; // Nie wyciszamy botów
+                if (member.id === interaction.user.id) continue; // Nie wyciszamy używającego
+                if (member.permissions.has(PermissionsBitField.Flags.Administrator)) continue; // Nie wyciszamy innych adminów (bezpieczeństwo)
+
+                if (targetRole && !member.roles.cache.has(targetRole.id)) continue; // Pomijamy jeśli nie ma rangi
+
+                try {
+                    await member.voice.setMute(true, `Muteall-ch przez ${interaction.user.tag}`);
+                    mutedCount++;
+                } catch (e) {}
+            }
+
+            let msg = `✅ Wyciszono **${mutedCount}** osób na kanale **${voiceChannel.name}**.`;
+            if (targetRole) msg += ` (Tylko ranga: ${targetRole.name})`;
+            if (mode === 'all-time') msg += `\n🔒 **Tryb ch-all-time:** Każdy kto wejdzie, zostanie wyciszony.`;
+            if (mode === 'one') msg += `\n🔒 **Tryb one:** Kanał wyciszony dopóki Ty tu jesteś. Po wyjściu wszyscy zostaną odciszeni.`;
+
+            return interaction.editReply(msg);
+        }
+
+        // --- UNMUTEALL-CH ---
+        if (interaction.commandName === 'unmuteall-ch') {
+            if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
+
+            await interaction.deferReply();
+
+            // 1. Czyszczenie pamięci
+            persistentMutes.clear();
+
+            // 2. Odciszanie wszystkich na serwerze
+            let unmutedCount = 0;
+            const channels = interaction.guild.channels.cache.filter(c => c.isVoiceBased());
+
+            for (const [id, channel] of channels) {
+                for (const [mid, member] of channel.members) {
+                    if (member.voice.serverMute) {
+                        try {
+                            await member.voice.setMute(false, `Unmuteall-ch przez ${interaction.user.tag}`);
+                            unmutedCount++;
+                        } catch (e) {}
+                    }
+                }
+            }
+
+            return interaction.editReply(`✅ Odciszono **${unmutedCount}** osób na całym serwerze.\n🔓 Wszystkie blokady kanałów (ch-all-time/one) zostały zdjęte.`);
+        }
+
+        // --- RESZTA STARYCH KOMEND ---
         if (interaction.commandName === 'fembed') {
             if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
             const targetChannel = interaction.options.getChannel('kanal') || interaction.channel;
@@ -268,22 +365,16 @@ async function handleInteraction(interaction, client) {
 
             await interaction.deferReply();
 
-            // Pobierz wszystkie kanały głosowe z serwera
             const channels = interaction.guild.channels.cache.filter(c => c.isVoiceBased() && c.id !== targetChannel.id);
             let movedCount = 0;
             let errorCount = 0;
 
             let membersToMove = [];
 
-            // Zbieramy wszystkich użytkowników do przeniesienia
             for (const [channelId, channel] of channels) {
                 for (const [memberId, member] of channel.members) {
-                    // Filtracja: Nie ruszamy botów
                     if (member.user.bot) continue;
-
-                    // Filtracja: Jeśli podano rangę, sprawdź czy user ją ma
                     if (roleFilter && !member.roles.cache.has(roleFilter.id)) continue;
-
                     membersToMove.push(member);
                 }
             }
@@ -302,7 +393,7 @@ async function handleInteraction(interaction, client) {
                 try {
                     await member.voice.setChannel(targetChannel);
                     movedCount++;
-                    await sleep(200); // Małe opóźnienie, żeby nie zabić API
+                    await sleep(200); 
                 } catch (e) {
                     errorCount++;
                 }
@@ -338,6 +429,54 @@ async function handleInteraction(interaction, client) {
 }
 
 // ==========================================
+// NOWY EVENT HANDLER (DLA INDEX.JS)
+// ==========================================
+// Ta funkcja musi być wywołana w index.js w zdarzeniu voiceStateUpdate!
+async function handleVoiceStateUpdate(oldState, newState) {
+    // 1. Ktoś wchodzi na kanał (newState.channelId)
+    if (newState.channelId) {
+        const config = persistentMutes.get(newState.channelId);
+        if (config) {
+            // Sprawdzamy czy to nie admin, który to ustawił
+            if (newState.member.id === config.ownerId) return;
+            // Sprawdzamy czy nie ma admina
+            if (newState.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
+            // Sprawdzamy rangę (jeśli ustawiona)
+            if (config.roleId && !newState.member.roles.cache.has(config.roleId)) return;
+
+            // Wyciszamy
+            if (!newState.serverMute) {
+                try {
+                    await newState.setMute(true, 'Auto-Mute: ch-all-time/one');
+                } catch (e) {}
+            }
+        }
+    }
+
+    // 2. Ktoś wychodzi z kanału (oldState.channelId)
+    // Sprawdzamy tryb 'one' - czy wyszedł właściciel blokady?
+    if (oldState.channelId) {
+        const config = persistentMutes.get(oldState.channelId);
+        if (config && config.mode === 'one') {
+            if (oldState.member.id === config.ownerId) {
+                // Właściciel wyszedł -> zdejmujemy blokadę i odciszamy wszystkich
+                persistentMutes.delete(oldState.channelId);
+                
+                // Odciszamy wszystkich na tym kanale
+                const channel = oldState.channel;
+                for (const [id, member] of channel.members) {
+                    if (member.voice.serverMute) {
+                        try {
+                            await member.voice.setMute(false, 'Auto-Unmute: Tryb one zakończony');
+                        } catch (e) {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
 // OBSŁUGA WIADOMOŚCI (TEXT COMMANDS)
 // ==========================================
 async function handleMessage(message) {
@@ -361,5 +500,6 @@ async function handleMessage(message) {
 module.exports = {
     commands,
     handleInteraction,
-    handleMessage
+    handleMessage,
+    handleVoiceStateUpdate // WAŻNE: To trzeba podłączyć w index.js
 };

@@ -33,14 +33,14 @@ const NODES = [
         secure: true 
     },
     {
-        name: 'AjieDev-V4.2', 
+        name: 'AjieDev-V4-NoSSl', 
         url: 'lava-v4.ajieblogs.eu.org:80', 
         auth: 'https://dsc.gg/ajidevserver', 
         secure: false 
     },
     {
-        name: 'AjieDev-V4.2', 
-        url: 'lavalinkv4-id.serenetia.com', 
+        name: 'AjieDev-V4.3', 
+        url: 'lavalinkv4-id.serenetia.com:443', 
         auth: 'https://dsc.gg/ajidevserver', 
         secure: true 
     },
@@ -127,6 +127,7 @@ function init(client) {
             .setThumbnail(track.thumbnail || null)
             .setColor('Green');
 
+        // Ustalanie statusu pętli
         let loopStatus = 'OFF';
         if (player.loop === 'queue') loopStatus = 'Kolejka';
         if (player.loop === 'track') loopStatus = 'Utwór';
@@ -141,9 +142,10 @@ function init(client) {
             new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
         );
 
+        // ZMIANA TUTAJ: Wyświetlamy pętlę zawsze, niezależnie od tego czy jest włączona
         const nodeName = player.shoukaku.node.name;
-        let footerText = `🔊 Vol: ${player.volume}% | Lavalink: ${nodeName}`;
-        if (player.loop !== 'none') footerText += ` | 🔁 Pętla: ${loopStatus}`;
+        let footerText = `🔊 Vol: ${player.volume}% | Lavalink: ${nodeName} | 🔁 Pętla: ${loopStatus}`;
+        
         embed.setFooter({ text: footerText });
 
         let messageUpdated = false;
@@ -178,15 +180,6 @@ function init(client) {
     kazagumo.on("playerEmpty", async (player) => {
         const channel = client.channels.cache.get(player.textId);
         
-        // if (lastPanelMessage.has(player.guildId)) {
-        //     const lastMsgId = lastPanelMessage.get(player.guildId);
-        //     try {
-        //         const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
-        //         if (oldMsg) await oldMsg.delete();
-        //     } catch (e) {}
-        //     lastPanelMessage.delete(player.guildId);
-        // }
-
         if (twentyFourSeven.get(player.guildId)) {
             if (channel) channel.send("zzz... Kolejka pusta, ale czekam (Tryb 24/7).");
             return; 
@@ -306,7 +299,7 @@ async function handleInteraction(interaction) {
                  return interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
             }
 
-            return true; // Obsłużono
+            return true; 
         }
     }
 

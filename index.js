@@ -60,7 +60,7 @@ client.on(Events.InteractionCreate, async interaction => {
     // Sprawdzamy moduł muzyczny
     if (await play.handleInteraction(interaction)) return;
 
-    // Sprawdzamy moduł moderacyjny (zawiera również giverole/ungiverole)
+    // Sprawdzamy moduł moderacyjny (zawiera również giverole/ungiverole/muteall)
     if (await moderation.handleInteraction(interaction, client)) return;
 
 });
@@ -76,6 +76,22 @@ client.on(Events.MessageCreate, async message => {
 
     // Sprawdzamy moduł moderacyjny
     if (await moderation.handleMessage(message)) return;
+});
+
+// ==========================================
+// OBSŁUGA KANAŁÓW GŁOSOWYCH (WAŻNE DLA MUTEALL i MUZYKI)
+// ==========================================
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+    
+    // 1. Przekazujemy zdarzenie do modułu moderacji
+    // To obsługuje tryby 'ch-all-time' (wyciszanie wchodzących) i 'one' (odciszanie po wyjściu admina)
+    if (moderation.handleVoiceStateUpdate) {
+        await moderation.handleVoiceStateUpdate(oldState, newState);
+    }
+
+    // 2. Tutaj można ewentualnie dodać logikę naprawy bota muzycznego (Zombie Player),
+    // ale w strukturze modułowej najlepiej, gdyby play.js sam to obsługiwał w init().
+    // Jeśli bot muzyczny się zatnie po wyrzuceniu, daj znać - dodamy tu fix.
 });
 
 const token = process.env.TOKEN;
