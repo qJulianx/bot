@@ -14,7 +14,7 @@ const {
 // ==========================================
 // KONFIGURACJA
 // ==========================================
-const TARGET_CHANNEL_ID = '1448046672188801156'; // Kanał gdzie trafiają podania
+const TARGET_CHANNEL_ID = '1448767076180299826'; // Kanał gdzie trafiają podania
 
 // Uprawnienia (skopiowane z innych plików dla spójności)
 const ALLOWED_ROLES = [
@@ -63,8 +63,8 @@ async function handleInteraction(interaction, client) {
             if (selection === 'usprawiedliwienia') {
                 const embed = new EmbedBuilder()
                     .setTitle('Usprawiedliwienie')
-                    .setDescription('Napisz formułkę\n\nJeśli cię nie ma w dniu edycji')
-                    .setColor('Blue');
+                    .setDescription('Napisz formułkę\nJeśli cię nie ma w dniu edycji')
+                    .setColor('Purple');
 
                 const row = new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
@@ -92,12 +92,14 @@ async function handleInteraction(interaction, client) {
                 .setCustomId('date_from')
                 .setLabel('Nie będzie mnie od:')
                 .setStyle(TextInputStyle.Short)
+                .setPlaceholder('DD.MM.RRRR')
                 .setRequired(true);
 
             const dateToInput = new TextInputBuilder()
                 .setCustomId('date_to')
                 .setLabel('Do:')
                 .setStyle(TextInputStyle.Short)
+                .setPlaceholder('DD.MM.RRRR')
                 .setRequired(true);
 
             const reasonInput = new TextInputBuilder()
