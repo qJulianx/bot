@@ -2,6 +2,9 @@ const express = require('express');
 const app = express();
 const port = 3000;
 
+// Biblioteka do Minecrafta
+const util = require('minecraft-server-util'); 
+
 app.get('/', (req, res) => res.send('Bot działa z Lavalink (Full Auto-Fix)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
@@ -9,12 +12,19 @@ require('dotenv').config();
 const { 
     Client, 
     GatewayIntentBits, 
-    Events
+    Events,
+    ActivityType // Dodane, aby móc ustawić typ statusu
 } = require('discord.js');
 
 const play = require('./play');
 const moderation = require('./moderation');
 const automod = require('./automod');
+
+// ==========================================
+// KONFIGURACJA MINECRAFT
+// ==========================================
+const MC_IP = 'gildiafoxy.keyhost.pl';
+const MC_PORT = 20031;
 
 const GUILD_ID = 'WKLEJ_TUTAJ_ID_SWOJEGO_SERWERA'; 
 
@@ -36,10 +46,31 @@ play.init(client);
 // ==========================================
 
 client.once(Events.ClientReady, async () => {
-	console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
+    console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
+
+    // --- SEKCJA STATUSU MINECRAFT (NOWE) ---
+    const updateStatus = () => {
+        util.status(MC_IP, MC_PORT)
+            .then((response) => {
+                
+                const statusText = `Serwer MC - Online Graczy: ${response.players.online}`;
+                
+                client.user.setActivity(statusText, { type: ActivityType.Playing });
+            })
+            .catch((error) => {
+                // Serwer jest OFFLINE lub błąd
+                client.user.setActivity('Serwer MC - Offline', { type: ActivityType.Watching });
+                // console.error('Błąd połączenia z MC:', error); // Odkomentuj, jeśli chcesz widzieć błędy w konsoli
+            });
+    };
+
+    // Wywołaj raz na starcie
+    updateStatus();
+    // Odświeżaj co 30 sekund
+    setInterval(updateStatus, 30000);
+    // ---------------------------------------
 
     const commands = [...moderation.commands, ...play.musicCommands, ...automod.commands];
-
 
     const guild = client.guilds.cache.get(GUILD_ID);
     try {
@@ -83,7 +114,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     }
 
     // 2. Logika Muzyki (Naprawa po wyrzuceniu bota)
-    // To sprawia, że jak wyrzucisz bota, on się zresetuje i będzie gotowy do ponownego wejścia
     if (play.handleVoiceUpdate) {
         await play.handleVoiceUpdate(oldState, newState);
     }
