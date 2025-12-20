@@ -47,13 +47,13 @@ const NODES = [
     {
         name: 'AjieDev-LDP-NoSSL',
         url: 'lava-all.ajieblogs.eu.org:80',
-        auth: 'https://dsc.gg/ajidevserver',
+        auth: 'https://dsc.gg/ajidevserver', 
         secure: false
     },
     {
         name: 'Serenetia-V4',
         url: 'lavalinkv4.serenetia.com:443',
-        auth: 'https://dsc.gg/ajidevserver',
+        auth: 'https://dsc.gg/ajidevserver', 
         secure: true
     }
 ];
@@ -143,7 +143,7 @@ function init(client) {
         );
 
         // Wyświetlamy status pętli ZAWSZE
-        const nodeName = player.shoukaku.node.name;
+        const nodeName = player.shoukaku.node ? player.shoukaku.node.name : 'Nieznany';
         let footerText = `🔊 Vol: ${player.volume}% | Lavalink: ${nodeName} | 🔁 Pętla: ${loopStatus}`;
         
         embed.setFooter({ text: footerText });
@@ -180,6 +180,16 @@ function init(client) {
     kazagumo.on("playerEmpty", async (player) => {
         const channel = client.channels.cache.get(player.textId);
         
+        // Opcjonalnie: Usuwanie panelu po zakończeniu
+        if (lastPanelMessage.has(player.guildId)) {
+            const lastMsgId = lastPanelMessage.get(player.guildId);
+            try {
+                const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
+                if (oldMsg) await oldMsg.delete();
+            } catch (e) {}
+            lastPanelMessage.delete(player.guildId);
+        }
+
         if (twentyFourSeven.get(player.guildId)) {
             if (channel) channel.send("zzz... Kolejka pusta, ale czekam (Tryb 24/7).");
             return; 
@@ -352,7 +362,6 @@ async function handleInteraction(interaction) {
                 player.destroy();
                 await interaction.reply('⏹️ Zatrzymano i rozłączono.');
             } else {
-                // Anty-bug
                 const me = interaction.guild.members.me;
                 if (me.voice.channel) {
                     await me.voice.disconnect();
@@ -459,7 +468,7 @@ async function handleMessage(message) {
 }
 
 // ==========================================
-// AUTO-FIX: OBSŁUGA WYRZUCENIA Z KANAŁU
+// AUTO-FIX: OBSŁUGA WYRZUCENIA Z KANAŁU (POPRAWIONA)
 // ==========================================
 async function handleVoiceUpdate(oldState, newState) {
     // Sprawdzamy, czy zmiana dotyczy samego bota
@@ -472,8 +481,14 @@ async function handleVoiceUpdate(oldState, newState) {
             const player = kazagumo.players.get(oldState.guild.id);
             
             if (player) {
-                console.log(`[Auto-Fix] Bot został wyrzucony z kanału. Resetuję odtwarzacz.`);
-                player.destroy();
+                console.log(`[Auto-Fix] Bot został wyrzucony z kanału. Próba resetu odtwarzacza...`);
+                
+                // ZABEZPIECZENIE PRZED CRASHEM (try-catch)
+                try {
+                    player.destroy();
+                } catch (e) {
+                    console.log(`[Auto-Fix] Player był już zniszczony, pomijam.`);
+                }
                 
                 // Czyścimy timery wyjścia jeśli istnieją
                 if (emptyTimers.has(oldState.guild.id)) {
