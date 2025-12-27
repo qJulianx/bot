@@ -5,7 +5,7 @@ const port = 3000;
 // Biblioteka do Minecrafta
 const util = require('minecraft-server-util'); 
 
-app.get('/', (req, res) => res.send('Bot działa z Lavalink (Full Auto-Fix)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (Full Auto-Fix + Anti-Crash)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -13,7 +13,7 @@ const {
     Client, 
     GatewayIntentBits, 
     Events,
-    ActivityType // Dodane, aby móc ustawić typ statusu
+    ActivityType 
 } = require('discord.js');
 
 const play = require('./play');
@@ -48,25 +48,19 @@ play.init(client);
 client.once(Events.ClientReady, async () => {
     console.log(`Bot gotowy! Zalogowano jako ${client.user.tag}`);
 
-    // --- SEKCJA STATUSU MINECRAFT (NOWE) ---
+    // --- SEKCJA STATUSU MINECRAFT ---
     const updateStatus = () => {
         util.status(MC_IP, MC_PORT)
             .then((response) => {
-                
                 const statusText = `Serwer MC - Online Graczy: ${response.players.online}`;
-                
                 client.user.setActivity(statusText, { type: ActivityType.Playing });
             })
             .catch((error) => {
-                // Serwer jest OFFLINE lub błąd
                 client.user.setActivity('Serwer MC - Offline', { type: ActivityType.Watching });
-                // console.error('Błąd połączenia z MC:', error); // Odkomentuj, jeśli chcesz widzieć błędy w konsoli
             });
     };
 
-    // Wywołaj raz na starcie
     updateStatus();
-    // Odświeżaj co 30 sekund
     setInterval(updateStatus, 30000);
     // ---------------------------------------
 
@@ -119,6 +113,38 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     }
 });
 
+// ==========================================
+// SYSTEM ANTI-CRASH (BARDZO WAŻNE!)
+// ==========================================
+// To zapobiega wyłączaniu się bota przy błędach, których nie przewidzieliśmy
+process.on('unhandledRejection', (reason, promise) => {
+    console.error(' [Anti-Crash] Unhandled Rejection:', reason);
+    // Bot NIE wyłączy się
+});
+
+process.on('uncaughtException', (err) => {
+    console.error(' [Anti-Crash] Uncaught Exception:', err);
+    // Bot NIE wyłączy się
+});
+
+process.on('uncaughtExceptionMonitor', (err, origin) => {
+    console.error(' [Anti-Crash] Uncaught Exception Monitor:', err, origin);
+    // Bot NIE wyłączy się
+});
+
 const token = process.env.TOKEN;
-if (token) client.login(token);
-else console.error("Brak tokenu!");
+
+console.log("--- DIAGNOSTYKA START ---");
+if (!token) {
+    console.error("❌ BŁĄD KRYTYCZNY: Render nie widzi zmiennej TOKEN! Sprawdź zakładkę Environment.");
+} else {
+    console.log(`✅ Token znaleziony. Długość znaków: ${token.length}`);
+    console.log("⏳ Próba logowania do Discorda...");
+    
+    client.login(token)
+        .then(() => console.log("🚀 SUKCES: client.login() przeszedł!"))
+        .catch((err) => {
+            console.error("❌ BŁĄD LOGOWANIA:");
+            console.error(err);
+        });
+}
