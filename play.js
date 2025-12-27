@@ -127,7 +127,6 @@ function init(client) {
             .setThumbnail(track.thumbnail || null)
             .setColor('Green');
 
-        // Ustalanie statusu pętli do wyświetlenia
         let loopStatus = 'OFF';
         if (player.loop === 'queue') loopStatus = 'Kolejka';
         if (player.loop === 'track') loopStatus = 'Utwór';
@@ -142,7 +141,6 @@ function init(client) {
             new ButtonBuilder().setCustomId('music_queue').setEmoji('📜').setLabel('Lista').setStyle(ButtonStyle.Secondary)
         );
 
-        // Wyświetlamy status pętli ZAWSZE
         const nodeName = player.shoukaku.node ? player.shoukaku.node.name : 'Nieznany';
         let footerText = `🔊 Vol: ${player.volume}% | Lavalink: ${nodeName} | 🔁 Pętla: ${loopStatus}`;
         
@@ -180,7 +178,7 @@ function init(client) {
     kazagumo.on("playerEmpty", async (player) => {
         const channel = client.channels.cache.get(player.textId);
         
-        // Opcjonalnie: Usuwanie panelu po zakończeniu
+        // Usuwanie panelu
         if (lastPanelMessage.has(player.guildId)) {
             const lastMsgId = lastPanelMessage.get(player.guildId);
             try {
@@ -260,7 +258,6 @@ async function handleInteraction(interaction) {
                 const currentState = twentyFourSeven.get(interaction.guildId) || false;
                 twentyFourSeven.set(interaction.guildId, !currentState);
 
-                // Aktualizujemy przycisk na panelu
                 const newState = !currentState;
                 const newRow = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('music_pause').setEmoji('⏯️').setLabel('Pauza').setStyle(ButtonStyle.Secondary),
@@ -291,10 +288,16 @@ async function handleInteraction(interaction) {
             if (interaction.customId === 'music_stop') {
                 if (player) {
                     player.destroy();
-                    // Panel zostaje
+                    // Usuwamy panel przy stopie
+                    if (lastPanelMessage.has(interaction.guildId)) {
+                        try {
+                            const oldMsg = await interaction.channel.messages.fetch(lastPanelMessage.get(interaction.guildId)).catch(() => null);
+                            if (oldMsg) await oldMsg.delete();
+                        } catch (e) {}
+                        lastPanelMessage.delete(interaction.guildId);
+                    }
                     return interaction.reply({ content: '⏹️ Zatrzymano i wyczyszczono.' });
                 } else {
-                    // Anty-bug: Jeśli bota nie ma w pamięci, ale jest na kanale -> wyrzuć go
                     const me = interaction.guild.members.me;
                     if (me.voice.channel) {
                         await me.voice.disconnect();
@@ -309,7 +312,7 @@ async function handleInteraction(interaction) {
                  return interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
             }
 
-            return true; // Obsłużono
+            return true;
         }
     }
 
@@ -468,35 +471,30 @@ async function handleMessage(message) {
 }
 
 // ==========================================
-// AUTO-FIX: OBSŁUGA WYRZUCENIA Z KANAŁU (POPRAWIONA)
+// AUTO-FIX: OBSŁUGA WYRZUCENIA Z KANAŁU (SAFE)
 // ==========================================
 async function handleVoiceUpdate(oldState, newState) {
-    // Sprawdzamy, czy zmiana dotyczy samego bota
     if (oldState.member.id === oldState.client.user.id) {
         
-        // Scenariusz: Bot był na kanale (oldState.channelId) I teraz nie ma go na żadnym (newState.channelId === null)
         if (oldState.channelId && !newState.channelId) {
             
-            // Sprawdzamy czy w pamięci Kazagumo istnieje player dla tego serwera
-            const player = kazagumo.players.get(oldState.guild.id);
-            
-            if (player) {
-                console.log(`[Auto-Fix] Bot został wyrzucony z kanału. Próba resetu odtwarzacza...`);
+            // SPRAWDZAMY CZY PLAYER ISTNIEJE W PAMIĘCI
+            // Zanim spróbujemy go pobrać i zniszczyć
+            if (kazagumo.players.has(oldState.guild.id)) {
+                const player = kazagumo.players.get(oldState.guild.id);
                 
-                // ZABEZPIECZENIE PRZED CRASHEM (try-catch)
+                console.log(`[Auto-Fix] Bot wyrzucony. Próba resetu...`);
                 try {
                     player.destroy();
                 } catch (e) {
-                    console.log(`[Auto-Fix] Player był już zniszczony, pomijam.`);
+                    console.log("[Auto-Fix] Player już był zniszczony.");
                 }
                 
-                // Czyścimy timery wyjścia jeśli istnieją
                 if (emptyTimers.has(oldState.guild.id)) {
                     clearTimeout(emptyTimers.get(oldState.guild.id));
                     emptyTimers.delete(oldState.guild.id);
                 }
                 
-                // Opcjonalnie: usuwamy panel z czatu
                 if (lastPanelMessage.has(oldState.guild.id)) {
                     lastPanelMessage.delete(oldState.guild.id);
                 }
