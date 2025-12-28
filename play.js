@@ -178,16 +178,8 @@ function init(client) {
     kazagumo.on("playerEmpty", async (player) => {
         const channel = client.channels.cache.get(player.textId);
         
-        // Usuwanie panelu
-        if (lastPanelMessage.has(player.guildId)) {
-            const lastMsgId = lastPanelMessage.get(player.guildId);
-            try {
-                const oldMsg = await channel.messages.fetch(lastMsgId).catch(() => null);
-                if (oldMsg) await oldMsg.delete();
-            } catch (e) {}
-            lastPanelMessage.delete(player.guildId);
-        }
-
+        // ZMIANA 1: Nie usuwamy panelu - kod usunięty
+        
         if (twentyFourSeven.get(player.guildId)) {
             if (channel) channel.send("zzz... Kolejka pusta, ale czekam (Tryb 24/7).");
             return; 
@@ -198,7 +190,8 @@ function init(client) {
         const timer = setTimeout(() => {
             if (!player.queue.length && !player.playing) {
                 player.destroy();
-                if (channel) channel.send("⏹️ Brak aktywności. Wychodzę z kanału.");
+                // ZMIANA 3: Usunięto wiadomość o wyjściu
+                // if (channel) channel.send("⏹️ Brak aktywności. Wychodzę z kanału."); 
                 emptyTimers.delete(player.guildId);
             }
         }, 60 * 1000); 
@@ -258,6 +251,7 @@ async function handleInteraction(interaction) {
                 const currentState = twentyFourSeven.get(interaction.guildId) || false;
                 twentyFourSeven.set(interaction.guildId, !currentState);
 
+                // Aktualizujemy przycisk na panelu
                 const newState = !currentState;
                 const newRow = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('music_pause').setEmoji('⏯️').setLabel('Pauza').setStyle(ButtonStyle.Secondary),
@@ -288,14 +282,7 @@ async function handleInteraction(interaction) {
             if (interaction.customId === 'music_stop') {
                 if (player) {
                     player.destroy();
-                    // Usuwamy panel przy stopie
-                    if (lastPanelMessage.has(interaction.guildId)) {
-                        try {
-                            const oldMsg = await interaction.channel.messages.fetch(lastPanelMessage.get(interaction.guildId)).catch(() => null);
-                            if (oldMsg) await oldMsg.delete();
-                        } catch (e) {}
-                        lastPanelMessage.delete(interaction.guildId);
-                    }
+                    // ZMIANA 1: Panel zostaje (usunięto kod kasujący)
                     return interaction.reply({ content: '⏹️ Zatrzymano i wyczyszczono.' });
                 } else {
                     const me = interaction.guild.members.me;
@@ -312,7 +299,7 @@ async function handleInteraction(interaction) {
                  return interaction.reply({ content: queueText, flags: MessageFlags.Ephemeral });
             }
 
-            return true;
+            return true; 
         }
     }
 
@@ -323,7 +310,9 @@ async function handleInteraction(interaction) {
             if (!channel) return interaction.reply({ content: '❌ Musisz być na kanale głosowym!', flags: MessageFlags.Ephemeral });
 
             const query = interaction.options.getString('utwor');
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            
+            // ZMIANA 2: Wiadomość publiczna (usunięto flags: MessageFlags.Ephemeral)
+            await interaction.deferReply(); 
 
             try {
                 if (emptyTimers.has(interaction.guildId)) {
@@ -478,8 +467,6 @@ async function handleVoiceUpdate(oldState, newState) {
         
         if (oldState.channelId && !newState.channelId) {
             
-            // SPRAWDZAMY CZY PLAYER ISTNIEJE W PAMIĘCI
-            // Zanim spróbujemy go pobrać i zniszczyć
             if (kazagumo.players.has(oldState.guild.id)) {
                 const player = kazagumo.players.get(oldState.guild.id);
                 
