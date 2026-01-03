@@ -5,7 +5,7 @@ const port = 3000;
 // Biblioteka do Minecrafta
 const util = require('minecraft-server-util'); 
 
-app.get('/', (req, res) => res.send('Bot działa z Lavalink (Full Auto-Fix + Anti-Crash)!'));
+app.get('/', (req, res) => res.send('Bot działa z Lavalink (Full Auto-Fix + Anti-Crash + Activity)!'));
 app.listen(port, () => console.log(`Nasłuchiwanie na porcie ${port}`));
 
 require('dotenv').config();
@@ -19,6 +19,7 @@ const {
 const play = require('./play');
 const moderation = require('./moderation');
 const automod = require('./automod');
+const activity = require('./activity'); // <--- DODANO IMPORT
 
 // ==========================================
 // KONFIGURACJA MINECRAFT
@@ -64,7 +65,13 @@ client.once(Events.ClientReady, async () => {
     setInterval(updateStatus, 30000);
     // ---------------------------------------
 
-    const commands = [...moderation.commands, ...play.musicCommands, ...automod.commands];
+    // DODANO activity.commands DO LISTY
+    const commands = [
+        ...moderation.commands, 
+        ...play.musicCommands, 
+        ...automod.commands, 
+        ...activity.commands
+    ];
 
     const guild = client.guilds.cache.get(GUILD_ID);
     try {
@@ -84,8 +91,10 @@ client.once(Events.ClientReady, async () => {
 client.on(Events.InteractionCreate, async interaction => {
     if (await play.handleInteraction(interaction)) return;
     if (await moderation.handleInteraction(interaction, client)) return;
+    if (await automod.handleInteraction(interaction, client)) return;
 
-    await automod.handleInteraction(interaction, client); 
+    // DODANO OBSŁUGĘ ACTIVITY
+    await activity.handleInteraction(interaction, client); 
 });
 
 // ==========================================
@@ -116,20 +125,16 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 // ==========================================
 // SYSTEM ANTI-CRASH (BARDZO WAŻNE!)
 // ==========================================
-// To zapobiega wyłączaniu się bota przy błędach, których nie przewidzieliśmy
 process.on('unhandledRejection', (reason, promise) => {
     console.error(' [Anti-Crash] Unhandled Rejection:', reason);
-    // Bot NIE wyłączy się
 });
 
 process.on('uncaughtException', (err) => {
     console.error(' [Anti-Crash] Uncaught Exception:', err);
-    // Bot NIE wyłączy się
 });
 
 process.on('uncaughtExceptionMonitor', (err, origin) => {
     console.error(' [Anti-Crash] Uncaught Exception Monitor:', err, origin);
-    // Bot NIE wyłączy się
 });
 
 const token = process.env.TOKEN;
