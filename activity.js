@@ -25,7 +25,7 @@ function checkPermissions(member) {
 }
 
 // Mapa sesji sprawdzania
-// Key: MessageID, Value: { interval: IntervalID, visited: Set<UserID> }
+// Key: ChannelID (nie MessageID, dla łatwiejszego dostępu z eventu), Value: { messageId: string, interval: IntervalID, visited: Set<UserID>, roleId: string }
 const activeSessions = new Map();
 
 // ==========================================
@@ -51,27 +51,23 @@ const commands = [
 // ==========================================
 
 async function generateStatusEmbed(guild, targetChannel, targetRole, visitedSet) {
-    await guild.members.fetch(); // Odświeżamy cache
+    await guild.members.fetch(); 
 
-    // 1. Zbieramy wszystkich z rangą (bez botów)
     const allRoleMembers = targetRole.members.filter(m => !m.user.bot);
     
-    // 2. Aktualizujemy listę odwiedzonych na podstawie tego, kto jest TERAZ na kanale
-    // (To zabezpiecza nas, gdyby event update nie zadziałał idealnie, sprawdzamy to co 5s)
+    // Awaryjna aktualizacja (gdyby event nie zadziałał)
     targetChannel.members.forEach(member => {
         if (member.roles.cache.has(targetRole.id)) {
             visitedSet.add(member.id);
         }
     });
 
-    const presentList = []; // Ci co byli/są
-    const absentList = [];  // Ci co ani razu nie weszli
+    const presentList = [];
+    const absentList = [];
 
     allRoleMembers.forEach(member => {
         if (visitedSet.has(member.id)) {
-            // Dodatkowo sprawdzamy czy jest TERAZ online na kanale dla lepszego efektu
             const isOnlineNow = member.voice.channelId === targetChannel.id;
-            // Możemy dodać kropkę, np. 🟢 jeśli jest teraz, ⚪ jeśli był i wyszedł
             const statusIcon = isOnlineNow ? '🟢' : '⚪';
             presentList.push(`${statusIcon} ${member.toString()}`);
         } else {
@@ -83,16 +79,15 @@ async function generateStatusEmbed(guild, targetChannel, targetRole, visitedSet)
     const presentCount = visitedSet.size;
     const percent = total > 0 ? Math.round((presentCount / total) * 100) : 0;
 
-    // Formatowanie długich list
     const formatList = (list) => {
         if (list.length === 0) return "-(Brak)-";
-        const str = list.join('\n'); // Lepiej w nowej linii dla czytelności
+        const str = list.join('\n'); 
         return str.length > 1000 ? str.substring(0, 997) + "..." : str;
     };
 
     const embed = new EmbedBuilder()
         .setTitle(`📋 Lista Obecności: ${targetChannel.name}`)
-        .setDescription(`**Ranga:** ${targetRole}\n**Zasada:** Kto wejdzie na kanał, zostaje odhaczony na stałe.\n**Status:** 🟢 TRWA SPRAWDZANIE...`)
+        .setDescription(`**Ranga:** ${targetRole}\n**Zasada:** Kto wejdzie na kanał, zostaje odhaczony na stałe.\n**Status:** 🟢 TRWA SPRAWDZANIE (Live)`)
         .setColor('Blue')
         .addFields(
             { name: `✅ Obecni (Kiedykolwiek): ${presentCount}/${total} (${percent}%)`, value: formatList(presentList), inline: true },
@@ -102,6 +97,25 @@ async function generateStatusEmbed(guild, targetChannel, targetRole, visitedSet)
         .setFooter({ text: '🟢 = Jest teraz na kanale | ⚪ = Był, ale wyszedł' });
 
     return embed;
+}
+
+// ==========================================
+// NOWY EVENT HANDLER (DLA INDEX.JS)
+// ==========================================
+// Ta funkcja musi być wywołana w index.js w zdarzeniu voiceStateUpdate!
+async function handleVoiceStateUpdate(oldState, newState) {
+    // Sprawdzamy czy ktoś wszedł na kanał, który jest monitorowany
+    if (newState.channelId) {
+        const session = activeSessions.get(newState.channelId);
+        
+        if (session) {
+            // Sprawdzamy czy ta osoba ma wymaganą rangę
+            if (newState.member.roles.cache.has(session.roleId)) {
+                // Dodajemy do odwiedzonych NATYCHMIAST
+                session.visited.add(newState.member.id);
+            }
+        }
+    }
 }
 
 // ==========================================
@@ -119,77 +133,87 @@ async function handleInteraction(interaction, client) {
             const targetChannel = interaction.options.getChannel('kanal');
             const targetRole = interaction.options.getRole('ranga');
 
-            // Inicjalizujemy pusty zbiór odwiedzonych
+            // Jeśli już jest sesja na tym kanale, usuwamy ją
+            if (activeSessions.has(targetChannel.id)) {
+                const oldSession = activeSessions.get(targetChannel.id);
+                clearInterval(oldSession.interval);
+                activeSessions.delete(targetChannel.id);
+            }
+
             const visitedSet = new Set();
 
-            // Pierwsze sprawdzenie (dodajemy tych co już tam siedzą)
+            // Dodajemy tych co już są
             targetChannel.members.forEach(member => {
                 if (member.roles.cache.has(targetRole.id)) {
                     visitedSet.add(member.id);
                 }
             });
 
-            // Generujemy pierwszy embed
             const embed = await generateStatusEmbed(interaction.guild, targetChannel, targetRole, visitedSet);
             
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
-                    .setCustomId('stop_activity_check')
+                    .setCustomId(`stop_activity_check:${targetChannel.id}`) // Dodajemy ID kanału do przycisku
                     .setLabel('ZAKOŃCZ SPRAWDZANIE')
                     .setStyle(ButtonStyle.Danger)
             );
 
             const message = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
 
-            // Uruchamiamy pętlę co 5 sekund
+            // Timer służy teraz tylko do odświeżania wyglądu (wizualizacji), dane zbiera event
             const interval = setInterval(async () => {
                 try {
                     const fetchedMsg = await interaction.channel.messages.fetch(message.id).catch(() => null);
                     
-                    // Jeśli wiadomość usunięta - czyścimy pamięć
                     if (!fetchedMsg) {
                         clearInterval(interval);
-                        activeSessions.delete(message.id);
+                        activeSessions.delete(targetChannel.id);
                         return;
                     }
 
-                    // Generujemy zaktualizowany embed (przekazujemy visitedSet)
                     const newEmbed = await generateStatusEmbed(interaction.guild, targetChannel, targetRole, visitedSet);
-                    
                     await fetchedMsg.edit({ embeds: [newEmbed] });
 
                 } catch (e) {
                     console.error("Błąd activity:", e);
                     clearInterval(interval);
-                    activeSessions.delete(message.id);
+                    activeSessions.delete(targetChannel.id);
                 }
-            }, 5000);
+            }, 3000); // Odświeżanie wyglądu co 3s
 
-            // Zapisujemy sesję
-            activeSessions.set(message.id, { interval, visited: visitedSet });
+            // Zapisujemy sesję pod ID KANAŁU
+            activeSessions.set(targetChannel.id, { 
+                messageId: message.id, 
+                interval, 
+                visited: visitedSet,
+                roleId: targetRole.id
+            });
             return true;
         }
     }
 
     // 2. PRZYCISK STOP
     if (interaction.isButton()) {
-        if (interaction.customId === 'stop_activity_check') {
+        if (interaction.customId.startsWith('stop_activity_check')) {
             if (!checkPermissions(interaction.member)) {
                 return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
             }
 
-            const messageId = interaction.message.id;
+            // Wyciągamy ID kanału z przycisku
+            const channelId = interaction.customId.split(':')[1];
 
-            if (activeSessions.has(messageId)) {
-                const session = activeSessions.get(messageId);
+            if (activeSessions.has(channelId)) {
+                const session = activeSessions.get(channelId);
                 clearInterval(session.interval);
-                activeSessions.delete(messageId);
+                activeSessions.delete(channelId);
+            } else {
+                // Jeśli sesja wygasła, ale przycisk został
+                return interaction.reply({ content: '⚠️ Ta sesja już wygasła.', flags: MessageFlags.Ephemeral });
             }
 
-            // Finalizacja embeda
             const oldEmbed = interaction.message.embeds[0];
             const finalEmbed = new EmbedBuilder(oldEmbed.data)
-                .setDescription(oldEmbed.description.replace('🟢 TRWA SPRAWDZANIE...', '🔴 SPRAWDZANIE ZAKOŃCZONE'))
+                .setDescription(oldEmbed.description.replace('🟢 TRWA SPRAWDZANIE (Live)', '🔴 SPRAWDZANIE ZAKOŃCZONE'))
                 .setColor('Red')
                 .setFooter({ text: `Zakończono przez: ${interaction.user.tag} • ${new Date().toLocaleTimeString()}` });
 
@@ -203,5 +227,6 @@ async function handleInteraction(interaction, client) {
 
 module.exports = {
     commands,
-    handleInteraction
+    handleInteraction,
+    handleVoiceStateUpdate // WAŻNE: To trzeba podłączyć w index.js
 };

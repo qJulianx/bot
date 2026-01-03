@@ -116,7 +116,12 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         await moderation.handleVoiceStateUpdate(oldState, newState);
     }
 
-    // 2. Logika Muzyki (Naprawa po wyrzuceniu bota)
+    // 2. Logika Aktywności (Sprawdzanie obecności) <--- TO DODAJ
+    if (activity.handleVoiceStateUpdate) {
+        await activity.handleVoiceStateUpdate(oldState, newState);
+    }
+
+    // 3. Logika Muzyki (Naprawa po wyrzuceniu bota)
     if (play.handleVoiceUpdate) {
         await play.handleVoiceUpdate(oldState, newState);
     }
