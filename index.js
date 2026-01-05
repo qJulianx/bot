@@ -142,6 +142,27 @@ process.on('uncaughtExceptionMonitor', (err, origin) => {
     console.error(' [Anti-Crash] Uncaught Exception Monitor:', err, origin);
 });
 
+// ==========================================
+// AUTOMOD: BLOKADA NICKÓW "!"
+// ==========================================
+
+// 1. Gdy nowy użytkownik wchodzi
+client.on(Events.GuildMemberAdd, async (member) => {
+    if (automod.handleNicknameCheck) {
+        await automod.handleNicknameCheck(member);
+    }
+});
+
+// 2. Gdy użytkownik zmienia nick (Event GuildMemberUpdate)
+client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+    // Sprawdzamy czy nick się w ogóle zmienił, żeby nie spamić
+    if (oldMember.displayName !== newMember.displayName) {
+        if (automod.handleNicknameCheck) {
+            await automod.handleNicknameCheck(newMember);
+        }
+    }
+});
+
 const token = process.env.TOKEN;
 
 console.log("--- DIAGNOSTYKA START ---");

@@ -16,7 +16,7 @@ const {
 // ==========================================
 const TARGET_CHANNEL_ID = '1448767076180299826'; // Kanał gdzie trafiają podania
 
-// Uprawnienia (skopiowane z innych plików dla spójności)
+// Uprawnienia
 const ALLOWED_ROLES = [
     '1447757045947174972', 
     '1447764029882896487', 
@@ -45,6 +45,40 @@ const commands = [
                 )
         )
 ];
+
+// ==========================================
+// FUNKCJA: AUTOMOD NICKÓW (NOWOŚĆ)
+// ==========================================
+async function handleNicknameCheck(member) {
+    // 1. Nie sprawdzamy botów ani administratorów (żeby uniknąć wojen edycyjnych)
+    if (member.user.bot) return;
+    if (member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
+
+    // 2. Pobieramy wyświetlaną nazwę (Nick lub Username)
+    const displayName = member.displayName;
+
+    // 3. Sprawdzamy czy zaczyna się od "!" (Anti-Hoist)
+    if (displayName.startsWith('!')) {
+        
+        // Usuwamy wszystkie wykrzykniki z początku nazwy
+        // Regex: ^ oznacza początek, !+ oznacza jeden lub więcej wykrzykników
+        let newName = displayName.replace(/^!+/, '').trim();
+
+        // Jeśli po usunięciu nazwa jest pusta (ktoś miał nick "!!!"), dajemy domyślny
+        if (newName.length === 0) {
+            newName = "Zmieniony Nick";
+        }
+
+        try {
+            // Zmieniamy nick
+            await member.setNickname(newName);
+            console.log(`[AutoMod] Zmieniono nick użytkownika ${member.user.tag} z "${displayName}" na "${newName}"`);
+        } catch (error) {
+            // To się stanie, jeśli bot ma niższą rolę niż użytkownik
+            // console.error(`[AutoMod] Nie udało się zmienić nicku dla ${member.user.tag}. Brak uprawnień.`);
+        }
+    }
+}
 
 // ==========================================
 // OBSŁUGA INTERAKCJI
@@ -79,10 +113,9 @@ async function handleInteraction(interaction, client) {
         }
     }
 
-    // 2. OBSŁUGA PRZYCISKÓW (Otwieranie formularza i Decyzje Admina)
+    // 2. OBSŁUGA PRZYCISKÓW
     if (interaction.isButton()) {
         
-        // A. Użytkownik klika "Usprawiedliwienie" -> Otwórz Modal
         if (interaction.customId === 'btn_open_justification') {
             const modal = new ModalBuilder()
                 .setCustomId('modal_justification_submit')
@@ -117,37 +150,31 @@ async function handleInteraction(interaction, client) {
             return interaction.showModal(modal);
         }
 
-        // B. Admin klika "Akceptuję"
         if (interaction.customId.startsWith('btn_just_accept:')) {
             if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
 
             const userId = interaction.customId.split(':')[1];
             
-            // Pobieramy stary embed i zmieniamy kolor na zielony
             const oldEmbed = interaction.message.embeds[0];
             const newEmbed = new EmbedBuilder(oldEmbed.data)
                 .setColor('Green')
                 .setFooter({ text: `Zaakceptowano przez: ${interaction.user.tag}` });
 
-            // Edytujemy wiadomość (usuwamy przyciski)
             await interaction.update({ embeds: [newEmbed], components: [] });
 
-            // Wysyłamy DM do użytkownika
             try {
                 const user = await client.users.fetch(userId);
                 await user.send(`✅ **Twoje usprawiedliwienie zostało zaakceptowane!**\nAdministrator: ${interaction.user.tag}`);
             } catch (e) {
-                await interaction.followUp({ content: '⚠️ Zaakceptowano, ale nie udało się wysłać DM do użytkownika (zablokowane PW).', flags: MessageFlags.Ephemeral });
+                await interaction.followUp({ content: '⚠️ Zaakceptowano, ale nie udało się wysłać DM (zablokowane PW).', flags: MessageFlags.Ephemeral });
             }
             return;
         }
 
-        // C. Admin klika "Odrzuć" -> Otwórz Modal powodu
         if (interaction.customId.startsWith('btn_just_reject:')) {
             if (!checkPermissions(interaction.member)) return interaction.reply({ content: '⛔ Brak uprawnień.', flags: MessageFlags.Ephemeral });
 
             const userId = interaction.customId.split(':')[1];
-            // Przekazujemy ID wiadomości w ID modala, żeby wiedzieć którą wiadomość edytować po wypełnieniu powodu
             const messageId = interaction.message.id;
 
             const modal = new ModalBuilder()
@@ -167,10 +194,9 @@ async function handleInteraction(interaction, client) {
         }
     }
 
-    // 3. OBSŁUGA FORMULARZY (MODALS)
+    // 3. OBSŁUGA FORMULARZY
     if (interaction.isModalSubmit()) {
 
-        // A. Użytkownik wysłał usprawiedliwienie
         if (interaction.customId === 'modal_justification_submit') {
             const dateFrom = interaction.fields.getTextInputValue('date_from');
             const dateTo = interaction.fields.getTextInputValue('date_to');
@@ -192,7 +218,6 @@ async function handleInteraction(interaction, client) {
                 )
                 .setTimestamp();
 
-            // Przyciski dla admina (przekazujemy ID usera w customId)
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`btn_just_accept:${interaction.user.id}`)
@@ -210,16 +235,13 @@ async function handleInteraction(interaction, client) {
             return interaction.reply({ content: '✅ Twoje usprawiedliwienie zostało wysłane do administracji.', flags: MessageFlags.Ephemeral });
         }
 
-        // B. Admin podał powód odrzucenia
         if (interaction.customId.startsWith('modal_just_reject_reason:')) {
             const [, userId, messageId] = interaction.customId.split(':');
             const reason = interaction.fields.getTextInputValue('reject_reason');
 
-            // Pobieramy wiadomość z podania
             const message = await interaction.channel.messages.fetch(messageId).catch(() => null);
             if (!message) return interaction.reply({ content: '❌ Nie znaleziono wiadomości.', flags: MessageFlags.Ephemeral });
 
-            // Edytujemy embed na czerwony
             const oldEmbed = message.embeds[0];
             const newEmbed = new EmbedBuilder(oldEmbed.data)
                 .setColor('Red')
@@ -229,18 +251,16 @@ async function handleInteraction(interaction, client) {
             await message.edit({ embeds: [newEmbed], components: [] });
             await interaction.reply({ content: '✅ Odrzucono podanie.', flags: MessageFlags.Ephemeral });
 
-            // Wysyłamy DM
             try {
                 const user = await client.users.fetch(userId);
                 await user.send(`⛔ **Twoje usprawiedliwienie zostało odrzucone.**\nPowód: ${reason}\nAdministrator: ${interaction.user.tag}`);
-            } catch (e) {
-                // Ignore DM closed
-            }
-        }
+            } catch (e) {}
+        } 
     }
 }
 
 module.exports = {
     commands,
-    handleInteraction
+    handleInteraction,
+    handleNicknameCheck // <--- WAŻNE: Eksportujemy nową funkcję
 };
